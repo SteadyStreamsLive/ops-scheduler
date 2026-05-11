@@ -212,11 +212,20 @@ const OPS_TEAM = [
 ];
 
 // Assignment options per person
-function getOptions(ops) {
-  if (ops.mkFixed) return ['MK']; // Matt always MK
-  const opts = ['NF', 'Off'];
-  if (!ops.mkReady === false || ops.name !== 'Steve') opts.splice(1, 0, 'NF+MK');
-  if (ops.name === 'Steve') return ['NF', 'Off']; // Steve NF only for now
+function getOptions(ops, day) {
+  if (ops.mkFixed) {
+    // Matt: MK Mon-Fri, Off Sat-Sun
+    return (day === 'Saturday' || day === 'Sunday') ? ['Off'] : ['MK'];
+  }
+  if (day === 'Saturday') {
+    // NF never runs Saturday
+    return ['Off'];
+  }
+  if (day === 'Sunday') {
+    // MK never runs Sunday
+    return ops.name === 'Steve' ? ['NF', 'Off'] : ['NF', 'Off'];
+  }
+  if (ops.name === 'Steve') return ['NF', 'Off'];
   return ['NF+MK', 'NF', 'Off'];
 }
 
@@ -235,12 +244,12 @@ function getDefaultAssignment(opsName, day, weekType) {
   // Rotation logic
   const rotations = {
     'Nate': {
-      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'NF', Saturday:'Off', Sunday:'Off' },
+      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'NF+MK', Saturday:'Off', Sunday:'Off' },
       B: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'Off',   Friday:'NF+MK', Saturday:'Off', Sunday:'Off' }
     },
     'Zach': {
-      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'Off',   Thursday:'NF+MK', Friday:'Off',   Saturday:'NF', Sunday:'NF' },
-      B: { Monday:'NF+MK', Tuesday:'Off',   Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'Off',   Saturday:'NF', Sunday:'NF' }
+      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'Off',   Thursday:'NF+MK', Friday:'Off',   Saturday:'Off', Sunday:'NF' },
+      B: { Monday:'NF+MK', Tuesday:'Off',   Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'Off',   Saturday:'Off', Sunday:'NF' }
     },
     'Steve': {
       A: { Monday:'NF', Tuesday:'NF', Wednesday:'NF', Thursday:'NF', Friday:'Off', Saturday:'Off', Sunday:'NF' },
@@ -340,7 +349,7 @@ function buildProdTable() {
       const current = weekSchedule[ops.name]?.[day];
       const defaultVal = current?.assign || getDefaultAssignment(ops.name, day, weekType);
       const isSolo = current?.solo || false;
-      const opts = getOptions(ops);
+      const opts = getOptions(ops, day);
       const dt = wm ? getDateForDay(wm, di) : null;
       const ds = dt ? fmtDate(dt) : '';
 
