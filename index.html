@@ -369,10 +369,10 @@ function buildProdTable() {
 function setAssign(opsName, day, val) {
   if (!weekSchedule[opsName]) weekSchedule[opsName] = {};
   if (!weekSchedule[opsName][day]) weekSchedule[opsName][day] = {};
+  // Save the assignment first
   weekSchedule[opsName][day].assign = val;
-
-  // When Out is selected, re-run suggest rotation to rebuild the whole week
-  if (val === 'Out') {
+  // Then rebuild - suggestRotation will read the saved Out days
+  if (val === 'Out' || val === 'Off') {
     suggestRotation();
   } else {
     buildProdTable();
@@ -416,13 +416,19 @@ async function suggestRotation() {
   if (!wm) { toast('Set a week first.'); return; }
   toast('Loading NF schedule...', 2000);
 
-  // Preserve existing Out assignments
+  // Read ALL Out and Off assignments from current weekSchedule
   const outDays = {};
   OPS_TEAM.forEach(ops => {
     outDays[ops.name] = {};
     DAYS.forEach(day => {
-      if (weekSchedule[ops.name]?.[day]?.assign === 'Out') outDays[ops.name][day] = true;
+      const a = weekSchedule[ops.name]?.[day]?.assign;
+      if (a === 'Out') outDays[ops.name][day] = true;
     });
+  });
+  // Also read manual Off overrides (non-default)
+  const manualOff = {};
+  OPS_TEAM.forEach(ops => {
+    manualOff[ops.name] = {};
   });
 
   // Fetch NF anchor counts
@@ -476,6 +482,8 @@ async function suggestRotation() {
   const mkCount = { Nate: 0, Zach: 0 };
   const workDays = {};
   NF_OPS.forEach(n => { workDays[n] = DAYS.filter(d => outDays[n]?.[d]).length; });
+  console.log('Out days detected:', JSON.stringify(outDays));
+  console.log('Starting workDays (Out counts):', JSON.stringify(workDays));
 
   NF_DAYS_LIST.forEach((day, dayIdx) => {
     if (dayType[day] === 'off') return;
