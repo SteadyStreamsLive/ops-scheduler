@@ -416,7 +416,9 @@ async function suggestRotation() {
   if (!wm) { toast('Set a week first.'); return; }
   toast('Loading NF schedule...', 2000);
 
-  // Read ALL Out and Off assignments from current weekSchedule
+  // Read ALL Out assignments from current weekSchedule.
+  // Out = time off. Does NOT count toward the 5-day target — a make-up
+  // pass at the end ensures the op still hits 5 real work shifts.
   const outDays = {};
   OPS_TEAM.forEach(ops => {
     outDays[ops.name] = {};
@@ -424,11 +426,6 @@ async function suggestRotation() {
       const a = weekSchedule[ops.name]?.[day]?.assign;
       if (a === 'Out') outDays[ops.name][day] = true;
     });
-  });
-  // Also read manual Off overrides (non-default)
-  const manualOff = {};
-  OPS_TEAM.forEach(ops => {
-    manualOff[ops.name] = {};
   });
 
   // Fetch NF anchor counts
@@ -473,26 +470,33 @@ async function suggestRotation() {
   // Matt: always MK Mon-Fri
   DAYS.forEach(day => { weekSchedule['Matt'][day] = { assign: (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK', solo: false }; });
 
-  // Apply Out days
+  // Apply Out days first so they're locked in before assignment
   OPS_TEAM.forEach(ops => { DAYS.forEach(day => { if (outDays[ops.name]?.[day]) weekSchedule[ops.name][day] = { assign: 'Out', solo: false }; }); });
 
   const NF_OPS = ['Nate', 'Zach', 'Steve'];
   const NF_DAYS_LIST = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
   const TARGET = 5;
   const mkCount = { Nate: 0, Zach: 0 };
-  const workDays = {};
-  NF_OPS.forEach(n => { workDays[n] = DAYS.filter(d => outDays[n]?.[d]).length; });
+  // workDays tracks REAL work shifts only — Out days excluded.
+  const workDays = { Nate: 0, Zach: 0, Steve: 0 };
   console.log('Out days detected:', JSON.stringify(outDays));
-  console.log('Starting workDays (Out counts):', JSON.stringify(workDays));
+  console.log('Starting workDays (real shifts only, Out excluded):', JSON.stringify(workDays));
 
-  NF_DAYS_LIST.forEach((day, dayIdx) => {
+  // ----- PHASE 1: cover each NF day with the required number of ops -----
+  // avail is now a SORT preference, not a hard filter. Anyone not Out is
+  // eligible; sort by workDays asc so under-target ops get picked first.
+  NF_DAYS_LIST.forEach(day => {
     if (dayType[day] === 'off') return;
     const needTwo = dayType[day] === 'heavy';
-    const avail = NF_OPS.filter(n => !outDays[n]?.[day] && workDays[n] < TARGET);
+    const slotsNeeded = needTwo ? 2 : 1;
+    const avail = NF_OPS
+      .filter(n => !outDays[n]?.[day])
+      .sort((a, b) => workDays[a] - workDays[b]);
     const assigned = [];
 
-    // Assign MK op (Mon-Fri only, not Sunday)
     if (day !== 'Sunday') {
+      // Mon-Fri: pick the MK op first (NF+MK slot)
+      // Preference: Nate up to 4 MK days, then Zach up to 1, then either.
       let mkOp = null;
       if (avail.includes('Nate') && mkCount.Nate < 4) mkOp = 'Nate';
       else if (avail.includes('Zach') && mkCount.Zach < 1) mkOp = 'Zach';
@@ -505,40 +509,75 @@ async function suggestRotation() {
         mkCount[mkOp]++;
         assigned.push(mkOp);
       }
-    } else {
-      // Sunday - NF only, no MK
-      // Pick ops sorted by fewest days first
-      const sundayAvail = avail.sort((a,b) => workDays[a] - workDays[b]);
-      const needTwoSun = dayType[day] === 'heavy';
-      sundayAvail.slice(0, needTwoSun ? 2 : 1).forEach(pick => {
-        weekSchedule[pick][day] = { assign: 'NF', solo: !needTwoSun };
-        workDays[pick]++;
-        assigned.push(pick);
-      });
     }
 
-    // Fill remaining slots - allow 3 ops if needed to hit 5-day target
-    const remaining = avail.filter(n => !assigned.includes(n)).sort((a,b) => workDays[a] - workDays[b]);
-    const minSlots = Math.max(0, (needTwo ? 2 : 1) - assigned.length);
-    const daysLeft = NF_DAYS_LIST.length - dayIdx - 1;
+    // Fill remaining NF slots from the under-worked end of avail.
+    const remaining = avail.filter(n => !assigned.includes(n));
+    while (assigned.length < slotsNeeded && remaining.length) {
+      const pick = remaining.shift();
+      weekSchedule[pick][day] = { assign: 'NF', solo: false };
+      workDays[pick]++;
+      assigned.push(pick);
+    }
 
-    remaining.forEach((pick, i) => {
-      const picksNeeded = TARGET - workDays[pick];
-      if (i < minSlots || picksNeeded > daysLeft) {
-        weekSchedule[pick][day] = { assign: 'NF', solo: false };
-        workDays[pick]++;
-        assigned.push(pick);
-      }
-    });
-
-    // Mark solo if only 1 NF op today
+    // Mark solo if exactly 1 NF op covers a light Mon-Fri day
     if (assigned.length === 1 && day !== 'Sunday') {
       weekSchedule[assigned[0]][day].solo = true;
     }
   });
 
+  // ----- PHASE 2: make-up pass for the 5-day target -----
+  // Any NF op below TARGET gets backfilled onto a non-Out NF day where
+  // they aren't already assigned, as an extra NF body. This is what makes
+  // Out days "rebuild and replace" instead of silently shrinking the week.
+  const isAssignableDay = d => d !== 'Saturday' && dayType[d] !== 'off';
+  let safety = 30; // hard cap so a bad config can't infinite-loop
+  let progress = true;
+  while (progress && safety-- > 0) {
+    progress = false;
+    // Sort ops by who's furthest from TARGET first
+    const needing = NF_OPS
+      .filter(n => workDays[n] < TARGET)
+      .sort((a, b) => workDays[a] - workDays[b]);
+    for (const op of needing) {
+      // Find a day they could be added to: not Out, not Saturday/off,
+      // not already assigned, and not Sunday-MK (Sundays are NF only,
+      // so adding there is fine).
+      const candidate = NF_DAYS_LIST.find(d => {
+        if (!isAssignableDay(d)) return false;
+        if (outDays[op]?.[d]) return false;
+        const current = weekSchedule[op][d]?.assign;
+        return current === 'Off'; // only fill genuinely empty days
+      });
+      if (candidate) {
+        weekSchedule[op][candidate] = { assign: 'NF', solo: false };
+        workDays[op]++;
+        // If this day was previously a solo NF day, it isn't anymore.
+        NF_OPS.forEach(other => {
+          if (other !== op && weekSchedule[other][candidate]?.solo) {
+            weekSchedule[other][candidate].solo = false;
+          }
+        });
+        progress = true;
+        break; // re-evaluate sort order after each addition
+      }
+    }
+  }
+
+  console.log('Final workDays:', JSON.stringify(workDays));
+  console.log('Final mkCount:', JSON.stringify(mkCount));
+
+  // Warn if anyone fell short of TARGET. This happens when Out days +
+  // unavailable days (Saturday, no-anchor days) leave fewer than TARGET
+  // open slots — mathematically impossible to hit 5, not a bug.
+  const shortOps = NF_OPS.filter(n => workDays[n] < TARGET);
   buildProdTable();
-  toast('Rotation suggested!');
+  if (shortOps.length) {
+    const details = shortOps.map(n => `${n}: ${workDays[n]}/5`).join(', ');
+    toast(`Rotation suggested — short week for ${details}`, 4500);
+  } else {
+    toast('Rotation suggested!');
+  }
 }
 
 async function loadProducerWeek() {
