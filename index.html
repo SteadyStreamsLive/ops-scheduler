@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ops Scheduler - SteadyStreams</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230a0a0a' rx='4'/><text x='50%25' y='54%25' font-family='Arial Black,sans-serif' font-size='11' font-weight='900' fill='%23c8f000' text-anchor='middle' dominant-baseline='middle'>OPS</text></svg>" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    :root{
+      --black:#0a0a0a;--dark:#111111;--dark2:#1a1a1a;--dark3:#242424;
+      --border:#2e2e2e;--border2:#3a3a3a;--white:#ffffff;--off-white:#e8e8e8;
+      --muted:#888888;--accent:#c8f000;--red:#C41230;--green:#34c759;
+      --amber:#ff9f0a;--blue:#0a84ff;--purple:#bf5af2;
+      --nf-color:#c8f000;--mk-color:#C41230;--off-color:#3a3a3a;
+      --solo-color:#ff9f0a;
+    }
+    body{font-family:'Barlow',sans-serif;background:var(--black);color:var(--white);min-height:100vh;}
+
+    /* TOPBAR */
+    .topbar{background:var(--dark);border-bottom:1px solid var(--border);padding:0 1.5rem;display:flex;align-items:center;height:58px;gap:12px;position:sticky;top:0;z-index:100;}
+    .logo{display:flex;align-items:center;gap:10px;margin-right:auto;}
+    .logo-mark{background:var(--accent);color:var(--black);font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:11px;letter-spacing:0.05em;padding:4px 7px;border-radius:4px;}
+    .logo-text{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;letter-spacing:0.08em;text-transform:uppercase;}
+    .logo-sub{font-size:12px;color:var(--muted);font-weight:500;}
+    .logo-divider{width:1px;height:18px;background:var(--border2);}
+    .nav-btn{font-family:'Barlow',sans-serif;font-size:13px;font-weight:500;padding:7px 16px;border-radius:4px;border:1px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;transition:all 0.15s;}
+    .nav-btn.active{background:var(--accent);color:var(--black);border-color:var(--accent);font-weight:600;}
+    .nav-btn:hover:not(.active){background:var(--dark3);color:var(--white);}
+
+    /* LAYOUT */
+    .container{max-width:900px;margin:0 auto;padding:2rem 1.25rem;}
+    .view{display:none;}.view.active{display:block;}
+    .hero-strip{border-left:3px solid var(--accent);padding-left:14px;margin-bottom:1.5rem;}
+    .hero-strip h1{font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;}
+    .hero-strip p{font-size:14px;color:var(--muted);margin-top:4px;}
+    .section-label{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:14px;margin-top:1.75rem;}
+    .week-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:1.5rem;}
+    .week-row label{font-size:13px;color:var(--muted);}
+    .week-row input{padding:7px 10px;font-size:13px;font-family:'Barlow',sans-serif;background:var(--dark2);border:1px solid var(--border2);border-radius:4px;color:var(--white);outline:none;}
+    .week-row input:focus{border-color:var(--accent);}
+    .ghost-btn{padding:7px 14px;background:transparent;color:var(--muted);border:1px solid var(--border2);border-radius:4px;font-size:13px;cursor:pointer;font-family:'Barlow',sans-serif;transition:all 0.15s;}
+    .ghost-btn:hover{background:var(--dark3);color:var(--white);}
+    .primary-btn{padding:9px 18px;background:var(--accent);color:var(--black);border:none;border-radius:4px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;transition:opacity 0.15s;}
+    .primary-btn:hover{opacity:0.88;}
+
+    /* LEGEND */
+    .legend{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.5rem;}
+    .legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
+    .legend-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+
+    /* SCHEDULE GRID */
+    .schedule-grid{overflow-x:auto;}
+    .grid-table{width:100%;border-collapse:collapse;min-width:640px;}
+    .grid-table th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);background:var(--dark);}
+    .grid-table th.day-col{text-align:center;}
+    .grid-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle;}
+    .grid-table tr:last-child td{border-bottom:none;}
+    .ops-name{font-weight:600;font-size:13px;color:var(--off-white);white-space:nowrap;}
+    .ops-role{font-size:10px;color:var(--muted);margin-top:1px;}
+
+    /* DAY CELLS */
+    .day-cell{text-align:center;padding:4px;}
+    .assign-badge{display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:5px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;min-width:64px;cursor:default;}
+    .assign-badge.nf{background:rgba(200,240,0,0.12);border:1px solid rgba(200,240,0,0.3);color:var(--nf-color);}
+    .assign-badge.mk{background:rgba(196,18,48,0.12);border:1px solid rgba(196,18,48,0.3);color:#ff4060;}
+    .assign-badge.nf-mk{background:linear-gradient(135deg,rgba(200,240,0,0.1),rgba(196,18,48,0.1));border:1px solid rgba(200,240,0,0.3);color:var(--off-white);}
+    .assign-badge.off{background:rgba(58,58,58,0.5);border:1px solid var(--border2);color:var(--muted);}
+    .assign-badge.solo{background:rgba(255,159,10,0.12);border:1px solid rgba(255,159,10,0.3);color:var(--amber);}
+    .assign-sub{font-size:9px;font-weight:500;opacity:0.8;text-transform:none;letter-spacing:0;}
+
+    /* PRODUCER GRID */
+    .prod-grid{overflow-x:auto;}
+    .prod-table{width:100%;border-collapse:collapse;min-width:700px;}
+    .prod-table th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);background:var(--dark);}
+    .prod-table th:first-child{text-align:left;}
+    .prod-table td{padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:middle;}
+    .prod-table tr:last-child td{border-bottom:none;}
+    .prod-select{width:100%;padding:5px 6px;font-size:11px;font-family:'Barlow',sans-serif;background:var(--dark2);border:1px solid var(--border2);border-radius:3px;color:var(--white);outline:none;cursor:pointer;}
+    .prod-select:focus{border-color:var(--accent);}
+    .prod-select option{background:var(--dark2);}
+    .solo-toggle{display:flex;align-items:center;justify-content:center;margin-top:3px;}
+    .solo-btn{font-size:9px;padding:2px 6px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;font-family:'Barlow',sans-serif;transition:all 0.15s;}
+    .solo-btn.active{background:rgba(255,159,10,0.15);border-color:var(--amber);color:var(--amber);}
+
+    /* PASSWORD */
+    .pw-screen{position:fixed;inset:0;background:var(--black);z-index:200;display:flex;align-items:center;justify-content:center;}
+    .pw-box{background:var(--dark);border:1px solid var(--border);border-radius:12px;padding:2.5rem 2rem;width:100%;max-width:340px;text-align:center;}
+    .pw-title{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;}
+    .pw-sub{font-size:13px;color:var(--muted);margin-bottom:1.5rem;}
+    .pw-input{width:100%;padding:12px 16px;font-size:24px;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:0.3em;text-align:center;background:var(--dark2);border:1px solid var(--border2);border-radius:4px;color:var(--white);outline:none;margin-bottom:8px;}
+    .pw-input:focus{border-color:var(--accent);}
+    .pw-input.error{border-color:var(--red);}
+    .pw-error{font-size:12px;color:var(--red);margin-bottom:12px;min-height:16px;}
+    .pw-btn{width:100%;padding:12px;background:var(--accent);color:var(--black);border:none;border-radius:4px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;}
+    .pw-btn:hover{opacity:0.88;}
+
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--black);padding:10px 20px;border-radius:4px;font-size:13px;font-weight:700;letter-spacing:0.04em;opacity:0;transition:opacity 0.25s;pointer-events:none;z-index:999;white-space:nowrap;text-transform:uppercase;}
+    .toast.show{opacity:1;}
+    .week-type-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:3px;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;}
+    .week-type-a{background:rgba(200,240,0,0.1);border:1px solid rgba(200,240,0,0.3);color:var(--accent);}
+    .week-type-b{background:rgba(10,132,255,0.1);border:1px solid rgba(10,132,255,0.3);color:var(--blue);}
+
+    @media(max-width:500px){.topbar{padding:0 1rem;gap:8px;}.logo-sub,.logo-divider{display:none;}.container{padding:1.25rem 1rem;}}
+  </style>
+</head>
+<body>
+
+<!-- PASSWORD -->
+<div class="pw-screen" id="pw-screen" style="display:none;">
+  <div class="pw-box">
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:1.5rem;">
+      <span class="logo-mark">OPS</span>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;letter-spacing:0.08em;text-transform:uppercase;">SteadyStreams</span>
+    </div>
+    <div class="pw-title">Producer Access</div>
+    <div class="pw-sub">Enter your password to continue.</div>
+    <input class="pw-input" type="password" id="pw-input" maxlength="10" placeholder="----" onkeydown="if(event.key==='Enter')checkPassword()" />
+    <div class="pw-error" id="pw-error"></div>
+    <button class="pw-btn" onclick="checkPassword()">Enter</button>
+  </div>
+</div>
+
+<div class="topbar">
+  <div class="logo">
+    <span class="logo-mark">OPS</span>
+    <span class="logo-text">SteadyStreams</span>
+    <span class="logo-divider"></span>
+    <span class="logo-sub">Ops Scheduler</span>
+  </div>
+  <button class="nav-btn active" onclick="switchView('schedule',this)">Schedule</button>
+  <button class="nav-btn" onclick="requestProducer(this)">Producer</button>
+</div>
+
+<div class="container">
+
+  <!-- SCHEDULE VIEW -->
+  <div class="view active" id="view-schedule">
+    <div class="hero-strip">
+      <h1>Ops Schedule</h1>
+      <p>Weekly assignments across NF and MK shows.</p>
+    </div>
+    <div class="week-row">
+      <label>Week of</label>
+      <input type="date" id="sched-week" onchange="loadScheduleView()" />
+      <button class="ghost-btn" onclick="loadScheduleView()">Refresh</button>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--nf-color);"></div>NF Only</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--mk-color);"></div>MK Only</div>
+      <div class="legend-item"><div class="legend-dot" style="background:linear-gradient(135deg,var(--nf-color),var(--mk-color));"></div>NF + MK</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--amber);"></div>Solo Day</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--off-color);"></div>Day Off</div>
+    </div>
+    <div class="schedule-grid" id="schedule-grid">
+      <div style="font-size:13px;color:var(--muted);padding:1rem 0;">Select a week and click Refresh to load the schedule.</div>
+    </div>
+  </div>
+
+  <!-- PRODUCER VIEW -->
+  <div class="view" id="view-producer">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap;">
+      <div class="hero-strip" style="margin-bottom:0;">
+        <h1>Build Schedule</h1>
+        <p>Assign ops to NF and MK for the week.</p>
+      </div>
+      <button class="primary-btn" onclick="pushToCalendar()">Push to Calendar</button>
+    </div>
+
+    <div class="week-row">
+      <label>Week of</label>
+      <input type="date" id="prod-week" onchange="loadProducerWeek()" />
+      <button class="ghost-btn" onclick="loadProducerWeek()">Load week</button>
+      <button class="ghost-btn" onclick="suggestRotation()">Suggest rotation</button>
+    </div>
+
+    <div id="week-type-display" style="margin-bottom:1rem;"></div>
+
+    <div class="section-label">Weekly assignments</div>
+    <div class="prod-grid">
+      <table class="prod-table" id="prod-table">
+        <thead>
+          <tr>
+            <th>Ops</th>
+            <th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th>
+          </tr>
+        </thead>
+        <tbody id="prod-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-label" style="margin-top:1.5rem;">Notes</div>
+    <textarea id="sched-notes" placeholder="Any notes for this week..." style="width:100%;padding:10px 12px;font-size:13px;font-family:'Barlow',sans-serif;background:var(--dark2);border:1px solid var(--border2);border-radius:4px;color:var(--white);outline:none;min-height:60px;resize:vertical;"></textarea>
+  </div>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyZpA5r9m3RfHzg3f1iTIfsNj9ZttdbhHkGAa6scFVmqThlR46smfSLbmmSEo6GNTLH/exec";
+const CALENDAR_ID = "c_818cba713b535f8b21d6e0d869b850f75ea17c21f72151b61f6977983db5d897@group.calendar.google.com";
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const DAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+// Ops team config
+const OPS_TEAM = [
+  { name: 'Matt',  role: 'MK TD',        mkFixed: true,  nf: false },
+  { name: 'Nate',  role: 'NF + MK MM',   mkFixed: false, nf: true  },
+  { name: 'Zach',  role: 'NF + MK MM',   mkFixed: false, nf: true  },
+  { name: 'Steve', role: 'NF',           mkFixed: false, nf: true, mkReady: false },
+];
+
+// Assignment options per person
+function getOptions(ops) {
+  if (ops.mkFixed) return ['MK']; // Matt always MK
+  const opts = ['NF', 'Off'];
+  if (!ops.mkReady === false || ops.name !== 'Steve') opts.splice(1, 0, 'NF+MK');
+  if (ops.name === 'Steve') return ['NF', 'Off']; // Steve NF only for now
+  return ['NF+MK', 'NF', 'Off'];
+}
+
+// Week A/B rotation defaults
+function getWeekType(weekMonday) {
+  const d = new Date(weekMonday + 'T12:00:00');
+  const weekNum = Math.floor(d.getTime() / (7 * 24 * 60 * 60 * 1000));
+  return weekNum % 2 === 0 ? 'A' : 'B';
+}
+
+function getDefaultAssignment(opsName, day, weekType) {
+  // Matt: always MK Mon-Fri, off Sat-Sun
+  if (opsName === 'Matt') {
+    return (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK';
+  }
+  // Rotation logic
+  const rotations = {
+    'Nate': {
+      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'NF', Saturday:'Off', Sunday:'Off' },
+      B: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'Off',   Friday:'NF+MK', Saturday:'Off', Sunday:'Off' }
+    },
+    'Zach': {
+      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'Off',   Thursday:'NF+MK', Friday:'Off',   Saturday:'NF', Sunday:'NF' },
+      B: { Monday:'NF+MK', Tuesday:'Off',   Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'Off',   Saturday:'NF', Sunday:'NF' }
+    },
+    'Steve': {
+      A: { Monday:'NF', Tuesday:'NF', Wednesday:'NF', Thursday:'NF', Friday:'Off', Saturday:'Off', Sunday:'NF' },
+      B: { Monday:'NF', Tuesday:'NF', Wednesday:'Off', Thursday:'NF', Friday:'NF', Saturday:'Off', Sunday:'NF' }
+    }
+  };
+  return (rotations[opsName]?.[weekType]?.[day]) || 'Off';
+}
+
+let weekSchedule = {}; // { opsName: { day: { assign, solo } } }
+let producerUnlocked = false;
+
+function toast(msg, ms=2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), ms);
+}
+
+async function api(payload) {
+  const r = await fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify(payload) });
+  return r.json();
+}
+
+function switchView(view, btn) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+  btn.classList.add('active');
+  if (view === 'schedule') {
+    const prodWm = document.getElementById('prod-week').value;
+    if (prodWm) document.getElementById('sched-week').value = prodWm;
+    loadScheduleView();
+  }
+}
+
+function requestProducer(btn) {
+  if (producerUnlocked) { switchView('producer', btn); buildProdTable(); return; }
+  document.getElementById('pw-screen').style.display = 'flex';
+  document.getElementById('pw-input').value = '';
+  document.getElementById('pw-error').textContent = '';
+  document.getElementById('pw-input').classList.remove('error');
+  setTimeout(() => document.getElementById('pw-input').focus(), 100);
+  window._pendingBtn = btn;
+}
+
+function checkPassword() {
+  const val = document.getElementById('pw-input').value;
+  if (val === '0000') {
+    producerUnlocked = true;
+    document.getElementById('pw-screen').style.display = 'none';
+    switchView('producer', window._pendingBtn);
+    buildProdTable();
+  } else {
+    document.getElementById('pw-input').classList.add('error');
+    document.getElementById('pw-error').textContent = 'Incorrect password.';
+    document.getElementById('pw-input').value = '';
+    setTimeout(() => document.getElementById('pw-input').focus(), 100);
+  }
+}
+
+function nextMonday() {
+  const d = new Date(), dow = d.getDay();
+  let nd = new Date(d);
+  if (dow === 0) nd.setDate(d.getDate() + 1);
+  else if (dow <= 2) nd.setDate(d.getDate() - (dow - 1));
+  else nd.setDate(d.getDate() + (8 - dow));
+  return nd.getFullYear() + '-' + String(nd.getMonth()+1).padStart(2,'0') + '-' + String(nd.getDate()).padStart(2,'0');
+}
+
+function getDateForDay(wm, dayIdx) {
+  const d = new Date(wm + 'T12:00:00');
+  d.setDate(d.getDate() + dayIdx);
+  return d;
+}
+
+function fmtDate(d) {
+  return d.toLocaleDateString('en-US', { month:'numeric', day:'numeric' });
+}
+
+// ============================================================
+// PRODUCER VIEW
+// ============================================================
+function buildProdTable() {
+  const wm = document.getElementById('prod-week').value;
+  const weekType = wm ? getWeekType(wm) : 'A';
+  const display = document.getElementById('week-type-display');
+  display.innerHTML = `<span class="week-type-badge week-type-${weekType.toLowerCase()}">Week ${weekType} Rotation</span>`;
+
+  const tbody = document.getElementById('prod-tbody');
+  tbody.innerHTML = '';
+
+  OPS_TEAM.forEach(ops => {
+    const tr = document.createElement('tr');
+    let html = `<td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
+
+    DAYS.forEach((day, di) => {
+      const current = weekSchedule[ops.name]?.[day];
+      const defaultVal = current?.assign || getDefaultAssignment(ops.name, day, weekType);
+      const isSolo = current?.solo || false;
+      const opts = getOptions(ops);
+      const dt = wm ? getDateForDay(wm, di) : null;
+      const ds = dt ? fmtDate(dt) : '';
+
+      const optHTML = opts.map(o => `<option value="${o}" ${defaultVal===o?'selected':''}>${o}</option>`).join('');
+      const soloBtn = (ops.name !== 'Matt' && defaultVal !== 'Off')
+        ? `<div class="solo-toggle"><button class="solo-btn ${isSolo?'active':''}" onclick="toggleSolo('${ops.name}','${day}',this)">Solo</button></div>`
+        : '';
+
+      html += `<td class="day-cell">
+        <select class="prod-select" onchange="setAssign('${ops.name}','${day}',this.value)">${optHTML}</select>
+        ${soloBtn}
+      </td>`;
+    });
+
+    tr.innerHTML = html;
+    tbody.appendChild(tr);
+  });
+}
+
+function setAssign(opsName, day, val) {
+  if (!weekSchedule[opsName]) weekSchedule[opsName] = {};
+  if (!weekSchedule[opsName][day]) weekSchedule[opsName][day] = {};
+  weekSchedule[opsName][day].assign = val;
+  // Rebuild solo button visibility
+  buildProdTable();
+}
+
+function toggleSolo(opsName, day, btn) {
+  if (!weekSchedule[opsName]) weekSchedule[opsName] = {};
+  if (!weekSchedule[opsName][day]) weekSchedule[opsName][day] = {};
+  const current = weekSchedule[opsName][day].solo || false;
+  weekSchedule[opsName][day].solo = !current;
+  btn.classList.toggle('active');
+}
+
+function suggestRotation() {
+  const wm = document.getElementById('prod-week').value;
+  if (!wm) { toast('Set a week first.'); return; }
+  const weekType = getWeekType(wm);
+  weekSchedule = {};
+  OPS_TEAM.forEach(ops => {
+    weekSchedule[ops.name] = {};
+    DAYS.forEach(day => {
+      weekSchedule[ops.name][day] = { assign: getDefaultAssignment(ops.name, day, weekType), solo: false };
+    });
+  });
+  buildProdTable();
+  toast('Rotation suggested!');
+}
+
+async function loadProducerWeek() {
+  const wm = document.getElementById('prod-week').value;
+  if (!wm) return;
+  try {
+    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
+    if (r.success && r.weekData) {
+      weekSchedule = r.weekData;
+      document.getElementById('sched-notes').value = r.notes || '';
+    } else {
+      suggestRotation();
+    }
+    buildProdTable();
+  } catch(e) {
+    suggestRotation();
+  }
+}
+
+async function saveSchedule() {
+  const wm = document.getElementById('prod-week').value;
+  if (!wm) { toast('Set a week first.'); return; }
+  // Read current values from table
+  const tbody = document.getElementById('prod-tbody');
+  OPS_TEAM.forEach((ops, oi) => {
+    const row = tbody.rows[oi];
+    if (!row) return;
+    if (!weekSchedule[ops.name]) weekSchedule[ops.name] = {};
+    DAYS.forEach((day, di) => {
+      const sel = row.cells[di+1]?.querySelector('select');
+      if (sel) {
+        if (!weekSchedule[ops.name][day]) weekSchedule[ops.name][day] = {};
+        weekSchedule[ops.name][day].assign = sel.value;
+      }
+    });
+  });
+  const notes = document.getElementById('sched-notes').value;
+  try {
+    const r = await api({ action: 'saveOpsWeek', weekMonday: wm, weekData: weekSchedule, notes });
+    toast(r.success ? 'Saved!' : 'Error: ' + r.error);
+  } catch(e) { toast('Connection error.'); }
+}
+
+async function pushToCalendar() {
+  const wm = document.getElementById('prod-week').value;
+  if (!wm) { toast('Set a week first.'); return; }
+  await saveSchedule();
+
+  // Build calendar events — one event per ops per day at 8:00 AM
+  const events = [];
+  OPS_TEAM.forEach(ops => {
+    DAYS.forEach((day, di) => {
+      const assign = weekSchedule[ops.name]?.[day]?.assign || getDefaultAssignment(ops.name, day, 'A');
+      if (assign === 'Off') return;
+      const isSolo = weekSchedule[ops.name]?.[day]?.solo || false;
+      const dt = getDateForDay(wm, di);
+      const dateStr = dt.toISOString().split('T')[0];
+      const title = `${ops.name} — ${assign}${isSolo ? ' (Solo)' : ''}`;
+      const desc = assign === 'NF+MK' ? 'NewsForce + MK Show' : assign === 'NF' ? 'NewsForce' : 'MK Show';
+      events.push({
+        opsName: ops.name,
+        assign,
+        isSolo,
+        title,
+        start: dateStr + 'T08:00:00',
+        end: dateStr + 'T08:30:00',
+        description: desc,
+        color: assign === 'NF+MK' ? 'sage' : assign === 'MK' ? 'tomato' : 'banana'
+      });
+    });
+  });
+
+  try {
+    const r = await api({ action: 'pushOpsToCalendar', weekMonday: wm, events });
+    toast(r.success ? 'Pushed to calendar!' : 'Error: ' + r.error);
+  } catch(e) { toast('Connection error.'); }
+}
+
+// ============================================================
+// SCHEDULE VIEW
+// ============================================================
+async function loadScheduleView() {
+  const wm = document.getElementById('sched-week').value;
+  if (!wm) return;
+  const grid = document.getElementById('schedule-grid');
+  grid.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:1rem 0;">Loading...</div>';
+  try {
+    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
+    const wd = r.success ? (r.weekData || {}) : {};
+    renderScheduleView(wm, wd);
+  } catch(e) {
+    grid.innerHTML = '<div style="font-size:13px;color:var(--muted);">Connection error.</div>';
+  }
+}
+
+function renderScheduleView(wm, wd) {
+  const grid = document.getElementById('schedule-grid');
+  const weekType = getWeekType(wm);
+
+  let html = `<div style="margin-bottom:12px;"><span class="week-type-badge week-type-${weekType.toLowerCase()}">Week ${weekType} Rotation</span></div>`;
+  html += '<div class="schedule-grid"><table class="grid-table"><thead><tr><th>Ops</th>';
+
+  DAYS.forEach((day, di) => {
+    const dt = getDateForDay(wm, di);
+    html += `<th class="day-col">${DAY_SHORT[di]}<br><span style="font-weight:400;color:var(--muted);font-size:10px;">${fmtDate(dt)}</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  OPS_TEAM.forEach(ops => {
+    html += `<tr><td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
+    DAYS.forEach(day => {
+      const data = wd[ops.name]?.[day];
+      const assign = data?.assign || getDefaultAssignment(ops.name, day, weekType);
+      const isSolo = data?.solo || false;
+      let cls = 'off', label = 'Off', sub = '';
+      if (assign === 'NF+MK') { cls = 'nf-mk'; label = 'NF + MK'; }
+      else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
+      else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
+      if (isSolo && assign !== 'Off') sub = '<span class="assign-sub">solo day</span>';
+      html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  grid.innerHTML = html;
+}
+
+// INIT
+const wm = nextMonday();
+document.getElementById('prod-week').value = wm;
+document.getElementById('sched-week').value = wm;
+loadScheduleView();
+</script>
+</body>
+</html>
