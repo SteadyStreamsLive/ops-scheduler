@@ -411,6 +411,19 @@ function suggestRotation() {
   const wm = document.getElementById('prod-week').value;
   if (!wm) { toast('Set a week first.'); return; }
   const weekType = getWeekType(wm);
+
+  // Preserve existing Out assignments before rebuilding
+  const outDays = {};
+  OPS_TEAM.forEach(ops => {
+    outDays[ops.name] = {};
+    DAYS.forEach(day => {
+      if (weekSchedule[ops.name]?.[day]?.assign === 'Out') {
+        outDays[ops.name][day] = true;
+      }
+    });
+  });
+
+  // Build fresh rotation
   weekSchedule = {};
   OPS_TEAM.forEach(ops => {
     weekSchedule[ops.name] = {};
@@ -418,6 +431,17 @@ function suggestRotation() {
       weekSchedule[ops.name][day] = { assign: getDefaultAssignment(ops.name, day, weekType), solo: false };
     });
   });
+
+  // Re-apply Out days and redistribute
+  OPS_TEAM.forEach(ops => {
+    DAYS.forEach(day => {
+      if (outDays[ops.name]?.[day]) {
+        weekSchedule[ops.name][day].assign = 'Out';
+        redistributeDay(day);
+      }
+    });
+  });
+
   buildProdTable();
   toast('Rotation suggested!');
 }
