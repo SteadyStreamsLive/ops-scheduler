@@ -84,6 +84,8 @@
     .solo-toggle{display:flex;align-items:center;justify-content:center;margin-top:3px;}
     .solo-btn{font-size:9px;padding:2px 6px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;font-family:'Barlow',sans-serif;transition:all 0.15s;}
     .solo-btn.active{background:rgba(255,159,10,0.15);border-color:var(--amber);color:var(--amber);}
+    .ics-btn{font-size:11px;padding:4px 10px;letter-spacing:0.04em;}
+    .ics-btn:hover{background:var(--accent);color:var(--black);border-color:var(--accent);}
 
     /* PASSWORD */
     .pw-screen{position:fixed;inset:0;background:var(--black);z-index:200;display:flex;align-items:center;justify-content:center;}
@@ -174,6 +176,7 @@
       <input type="date" id="prod-week" onchange="loadProducerWeek()" />
       <button class="ghost-btn" onclick="loadProducerWeek()">Load week</button>
       <button class="ghost-btn" onclick="suggestRotation()">Suggest rotation</button>
+      <button class="ghost-btn" onclick="saveSchedule()">Save</button>
     </div>
 
     <div id="week-type-display" style="margin-bottom:1rem;"></div>
@@ -684,7 +687,7 @@ function renderScheduleView(wm, wd) {
     const dt = getDateForDay(wm, di);
     html += `<th class="day-col">${DAY_SHORT[di]}<br><span style="font-weight:400;color:var(--muted);font-size:10px;">${fmtDate(dt)}</span></th>`;
   });
-  html += '</tr></thead><tbody>';
+  html += '<th class="day-col" style="min-width:80px;">Download</th></tr></thead><tbody>';
 
   OPS_TEAM.forEach(ops => {
     html += `<tr><td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
@@ -700,11 +703,145 @@ function renderScheduleView(wm, wd) {
       if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
       html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
     });
+    html += `<td class="day-cell"><button class="ghost-btn ics-btn" onclick="downloadOpsICS('${ops.name}','${wm}')" title="Download .ics calendar file for ${ops.name}">.ics</button></td>`;
     html += '</tr>';
   });
 
   html += '</tbody></table></div>';
   grid.innerHTML = html;
+}
+
+// ============================================================
+// PER-OP ICS DOWNLOAD
+// ============================================================
+async function downloadOpsICS(opsName, wm) {
+  toast(`Building ${opsName}'s schedule...`, 1500);
+  let wd = {};
+  try {
+    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
+    wd = r.success ? (r.weekData || {}) : {};
+  } catch(e) {
+    toast('Connection error.');
+    return;
+  }
+
+  const weekType = getWeekType(wm);
+  const opsRow = wd[opsName] || {};
+
+  // Build VEVENTs. RFC 5545: CRLF line endings, fold long lines, UTC stamps.
+  // Each work day = one event 8:00-8:30 AM in America/New_York.
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//SteadyStreams//Ops Scheduler//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${opsName} — Ops Schedule (week of ${wm})`,
+    'X-WR-TIMEZONE:America/New_York',
+    // Minimal VTIMEZONE for America/New_York so Apple/Outlook display
+    // the events at the right local time regardless of the importer's TZ.
+    'BEGIN:VTIMEZONE',
+    'TZID:America/New_York',
+    'BEGIN:STANDARD',
+    'DTSTART:20071104T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+    'TZOFFSETFROM:-0400',
+    'TZOFFSETTO:-0500',
+    'TZNAME:EST',
+    'END:STANDARD',
+    'BEGIN:DAYLIGHT',
+    'DTSTART:20070311T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+    'TZOFFSETFROM:-0500',
+    'TZOFFSETTO:-0400',
+    'TZNAME:EDT',
+    'END:DAYLIGHT',
+    'END:VTIMEZONE'
+  ];
+
+  const dtstamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+  let eventCount = 0;
+
+  DAYS.forEach((day, di) => {
+    const data = opsRow[day];
+    const assign = data?.assign || getDefaultAssignment(opsName, day, weekType);
+    if (assign === 'Off' || assign === 'Out') return;
+    const isSolo = data?.solo || false;
+    const dt = getDateForDay(wm, di);
+    const ymd = dt.getFullYear()
+      + String(dt.getMonth()+1).padStart(2,'0')
+      + String(dt.getDate()).padStart(2,'0');
+    const summary = assign === 'NF+MK'
+      ? `Ops: NF + MK${isSolo ? ' (Solo)' : ''}`
+      : assign === 'NF'
+        ? `Ops: NF${isSolo ? ' (Solo)' : ''}`
+        : `Ops: ${assign}`;
+    const desc = assign === 'NF+MK' ? 'NewsForce + MK Show'
+               : assign === 'NF'    ? 'NewsForce'
+               :                      'MK Show';
+    const uid = `${opsName}-${ymd}-${assign.replace('+','')}@steadystreams.ops`;
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART;TZID=America/New_York:${ymd}T080000`,
+      `DTEND;TZID=America/New_York:${ymd}T083000`,
+      `SUMMARY:${icsEscape(summary)}`,
+      `DESCRIPTION:${icsEscape(desc)}`,
+      'END:VEVENT'
+    );
+    eventCount++;
+  });
+
+  lines.push('END:VCALENDAR');
+
+  // Fold lines > 75 octets per RFC 5545, join with CRLF
+  const folded = lines.map(foldIcsLine).join('\r\n') + '\r\n';
+
+  if (eventCount === 0) {
+    toast(`${opsName} has no work days this week.`);
+    return;
+  }
+
+  const blob = new Blob([folded], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${opsName}-ops-${wm}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`Downloaded ${opsName}'s schedule (${eventCount} events).`);
+}
+
+function icsEscape(s) {
+  // RFC 5545: escape \ ; , and newlines inside TEXT values
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, '\\n');
+}
+
+function foldIcsLine(line) {
+  // RFC 5545 line folding: lines >75 octets split, continuation starts with space.
+  // We measure by UTF-8 byte length to be safe.
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 75) return line;
+  const out = [];
+  let buf = '';
+  for (const ch of line) {
+    const next = buf + ch;
+    if (enc.encode(next).length > 75) {
+      out.push(buf);
+      buf = ' ' + ch; // continuation line prefix
+    } else {
+      buf = next;
+    }
+  }
+  if (buf) out.push(buf);
+  return out.join('\r\n');
 }
 
 // INIT
