@@ -371,9 +371,12 @@ function setAssign(opsName, day, val) {
   if (!weekSchedule[opsName][day]) weekSchedule[opsName][day] = {};
   weekSchedule[opsName][day].assign = val;
 
-  // Auto-redistribute if someone is marked Out
-  if (val === 'Out') redistributeDay(day);
-  buildProdTable();
+  // When Out is selected, re-run suggest rotation to rebuild the whole week
+  if (val === 'Out') {
+    suggestRotation();
+  } else {
+    buildProdTable();
+  }
 }
 
 function redistributeDay(day) {
