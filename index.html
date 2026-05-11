@@ -422,8 +422,9 @@ async function suggestRotation() {
     });
   });
 
-  // Fetch NF anchor counts per day
-  let anchorCounts = { Monday:0, Tuesday:0, Wednesday:0, Thursday:0, Friday:0, Saturday:0, Sunday:0 };
+  // Fetch NF anchor counts
+  let anchorCounts = {};
+  DAYS.forEach(d => anchorCounts[d] = 0);
   try {
     const r = await fetch(NF_SCRIPT_URL, { method:'POST', body: JSON.stringify({ action:'getSubmissions', weekMonday:wm }) });
     const data = await r.json();
@@ -431,116 +432,102 @@ async function suggestRotation() {
       data.submissions.forEach(anchor => {
         DAYS.forEach(day => {
           const blocks = anchor.days?.[day];
-          if (blocks && blocks.length && blocks[0].type !== 'off') {
-            anchorCounts[day] = (anchorCounts[day] || 0) + 1;
-          }
+          if (blocks && blocks.length && blocks[0].type !== 'off') anchorCounts[day]++;
         });
       });
     }
-  } catch(e) { console.log('Could not fetch NF schedule, using defaults'); }
+  } catch(e) {
+    console.log('NF fetch failed, defaulting to heavy days:', e);
+    DAYS.forEach(d => anchorCounts[d] = d === 'Saturday' ? 0 : 3);
+  }
 
-  // Determine heavy (3+ anchors) vs light (1-2 anchors) vs off (0) days
-  const dayType = {}; // 'heavy', 'light', 'off'
-  DAYS.forEach(day => {
-    if (day === 'Saturday') { dayType[day] = 'off'; return; }
-    const count = anchorCounts[day] || 0;
-    dayType[day] = count === 0 ? 'off' : count <= 2 ? 'light' : 'heavy';
+  // Day types
+  const dayType = {};
+  DAYS.forEach(d => {
+    if (d === 'Saturday') { dayType[d] = 'off'; return; }
+    const c = anchorCounts[d] || 0;
+    dayType[d] = c === 0 ? 'off' : c <= 2 ? 'light' : 'heavy';
   });
 
-  // Show anchor counts in week type display
+  // Show counts
   const display = document.getElementById('week-type-display');
-  const countHTML = DAYS.filter(d => d !== 'Saturday').map(d => {
-    const count = anchorCounts[d] || 0;
-    const type = dayType[d];
-    const col = type === 'heavy' ? 'var(--accent)' : type === 'light' ? 'var(--amber)' : 'var(--muted)';
-    return `<span style="font-size:10px;color:${col};margin-right:8px;">${d.slice(0,3)}: ${count} anchors</span>`;
+  display.innerHTML = DAYS.filter(d => d !== 'Saturday').map(d => {
+    const c = anchorCounts[d] || 0;
+    const col = dayType[d] === 'heavy' ? 'var(--accent)' : dayType[d] === 'light' ? 'var(--amber)' : 'var(--muted)';
+    return `<span style="font-size:10px;color:${col};margin-right:10px;">${d.slice(0,3)}: ${c} anchors</span>`;
   }).join('');
-  display.innerHTML = countHTML;
 
-  // Build schedule - 5 days each for Nate, Zach, Steve
-  // NF ops pool: Nate, Zach, Steve (available days = not Out)
+  // Build schedule
   weekSchedule = {};
   OPS_TEAM.forEach(ops => { weekSchedule[ops.name] = {}; DAYS.forEach(day => { weekSchedule[ops.name][day] = { assign: 'Off', solo: false }; }); });
 
   // Matt: always MK Mon-Fri
-  DAYS.forEach(day => {
-    weekSchedule['Matt'][day] = { assign: (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK', solo: false };
-  });
+  DAYS.forEach(day => { weekSchedule['Matt'][day] = { assign: (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK', solo: false }; });
 
-  // Re-apply Out days first
-  OPS_TEAM.forEach(ops => {
-    DAYS.forEach(day => {
-      if (outDays[ops.name]?.[day]) weekSchedule[ops.name][day] = { assign: 'Out', solo: false };
-    });
-  });
+  // Apply Out days
+  OPS_TEAM.forEach(ops => { DAYS.forEach(day => { if (outDays[ops.name]?.[day]) weekSchedule[ops.name][day] = { assign: 'Out', solo: false }; }); });
 
-  // NF ops: Nate, Zach, Steve
-  const nfOps = ['Nate', 'Zach', 'Steve'];
-  const workDays = { Nate:0, Zach:0, Steve:0 };
+  const NF_OPS = ['Nate', 'Zach', 'Steve'];
+  const NF_DAYS_LIST = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
+  const TARGET = 5;
+  const mkCount = { Nate: 0, Zach: 0 };
+  const workDays = {};
+  NF_OPS.forEach(n => { workDays[n] = DAYS.filter(d => outDays[n]?.[d]).length; });
 
-  // Count Out days as work days
-  nfOps.forEach(name => {
-    DAYS.forEach(day => { if (outDays[name]?.[day]) workDays[name]++; });
-  });
+  NF_DAYS_LIST.forEach((day, dayIdx) => {
+    if (dayType[day] === 'off') return;
+    const needTwo = dayType[day] === 'heavy';
+    const avail = NF_OPS.filter(n => !outDays[n]?.[day] && workDays[n] < TARGET);
+    const assigned = [];
 
-  // NF days that need coverage (Mon-Fri + Sun, no Sat)
-  const nfDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
-
-  // For each NF day, assign ops based on heavy/light
-  nfDays.forEach(day => {
-    const type = dayType[day];
-    if (type === 'off') return; // no anchors, no NF ops needed
-
-    // Get available ops for this day (not Out, not already at 5 days)
-    const available = nfOps.filter(name =>
-      !outDays[name]?.[day] && workDays[name] < 5
-    );
-
-    const needTwo = type === 'heavy';
-    const isSunday = day === 'Sunday';
-
-    // Prioritize: for MK days (Mon-Fri), one of Nate/Zach should be NF+MK
-    // Nate gets MK priority 4 days, Zach gets 1 day
-    const mkAssigned = { Nate: Object.values(weekSchedule['Nate']).filter(d => d.assign === 'NF+MK').length,
-                         Zach: Object.values(weekSchedule['Zach']).filter(d => d.assign === 'NF+MK').length };
-
-    if (!isSunday) {
-      // Assign MK MM for today - prefer Nate if under 4, else Zach
+    // Assign MK op (Mon-Fri only, not Sunday)
+    if (day !== 'Sunday') {
       let mkOp = null;
-      if (available.includes('Nate') && mkAssigned['Nate'] < 4) mkOp = 'Nate';
-      else if (available.includes('Zach') && mkAssigned['Zach'] < 1) mkOp = 'Zach';
-      else if (available.includes('Nate')) mkOp = 'Nate';
-      else if (available.includes('Zach')) mkOp = 'Zach';
+      if (avail.includes('Nate') && mkCount.Nate < 4) mkOp = 'Nate';
+      else if (avail.includes('Zach') && mkCount.Zach < 1) mkOp = 'Zach';
+      else if (avail.includes('Nate')) mkOp = 'Nate';
+      else if (avail.includes('Zach')) mkOp = 'Zach';
 
       if (mkOp) {
-        weekSchedule[mkOp][day] = { assign: 'NF+MK', solo: !needTwo };
+        weekSchedule[mkOp][day] = { assign: 'NF+MK', solo: false };
         workDays[mkOp]++;
-
-        // If heavy day, assign a second NF op
-        if (needTwo) {
-          const second = available.filter(n => n !== mkOp);
-          if (second.length > 0) {
-            const pick = second[0];
-            weekSchedule[pick][day] = { assign: 'NF', solo: false };
-            workDays[pick]++;
-          }
-        }
+        mkCount[mkOp]++;
+        assigned.push(mkOp);
       }
     } else {
-      // Sunday - no MK, assign 1-2 NF ops
-      const count = needTwo ? 2 : 1;
-      available.slice(0, count).forEach(name => {
-        weekSchedule[name][day] = { assign: 'NF', solo: count === 1 };
-        workDays[name]++;
+      // Sunday - NF only, no MK
+      // Pick ops sorted by fewest days first
+      const sundayAvail = avail.sort((a,b) => workDays[a] - workDays[b]);
+      const needTwoSun = dayType[day] === 'heavy';
+      sundayAvail.slice(0, needTwoSun ? 2 : 1).forEach(pick => {
+        weekSchedule[pick][day] = { assign: 'NF', solo: !needTwoSun };
+        workDays[pick]++;
+        assigned.push(pick);
       });
+    }
+
+    // Fill remaining slots - allow 3 ops if needed to hit 5-day target
+    const remaining = avail.filter(n => !assigned.includes(n)).sort((a,b) => workDays[a] - workDays[b]);
+    const minSlots = Math.max(0, (needTwo ? 2 : 1) - assigned.length);
+    const daysLeft = NF_DAYS_LIST.length - dayIdx - 1;
+
+    remaining.forEach((pick, i) => {
+      const picksNeeded = TARGET - workDays[pick];
+      if (i < minSlots || picksNeeded > daysLeft) {
+        weekSchedule[pick][day] = { assign: 'NF', solo: false };
+        workDays[pick]++;
+        assigned.push(pick);
+      }
+    });
+
+    // Mark solo if only 1 NF op today
+    if (assigned.length === 1 && day !== 'Sunday') {
+      weekSchedule[assigned[0]][day].solo = true;
     }
   });
 
-  // Fill remaining days as Off to reach 5 days if needed
-  // (already handled since we start with Off)
-
   buildProdTable();
-  toast('Rotation suggested based on NF schedule!');
+  toast('Rotation suggested!');
 }
 
 async function loadProducerWeek() {
