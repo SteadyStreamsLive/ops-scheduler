@@ -68,6 +68,7 @@
     .assign-badge.nf-mk{background:linear-gradient(135deg,rgba(200,240,0,0.1),rgba(196,18,48,0.1));border:1px solid rgba(200,240,0,0.3);color:var(--off-white);}
     .assign-badge.off{background:rgba(58,58,58,0.5);border:1px solid var(--border2);color:var(--muted);}
     .assign-badge.solo{background:rgba(255,159,10,0.12);border:1px solid rgba(255,159,10,0.3);color:var(--amber);}
+    .assign-badge.out{background:rgba(255,59,48,0.08);border:1px dashed rgba(255,59,48,0.3);color:var(--red);}
     .assign-sub{font-size:9px;font-weight:500;opacity:0.8;text-transform:none;letter-spacing:0;}
 
     /* PRODUCER GRID */
@@ -214,19 +215,12 @@ const OPS_TEAM = [
 // Assignment options per person
 function getOptions(ops, day) {
   if (ops.mkFixed) {
-    // Matt: MK Mon-Fri, Off Sat-Sun
-    return (day === 'Saturday' || day === 'Sunday') ? ['Off'] : ['MK'];
+    return (day === 'Saturday' || day === 'Sunday') ? ['Off', 'Out'] : ['MK', 'Out'];
   }
-  if (day === 'Saturday') {
-    // NF never runs Saturday
-    return ['Off'];
-  }
-  if (day === 'Sunday') {
-    // MK never runs Sunday
-    return ops.name === 'Steve' ? ['NF', 'Off'] : ['NF', 'Off'];
-  }
-  if (ops.name === 'Steve') return ['NF', 'Off'];
-  return ['NF+MK', 'NF', 'Off'];
+  if (day === 'Saturday') return ['Off', 'Out'];
+  if (day === 'Sunday') return ops.name === 'Steve' ? ['NF', 'Off', 'Out'] : ['NF', 'Off', 'Out'];
+  if (ops.name === 'Steve') return ['NF', 'Off', 'Out'];
+  return ['NF+MK', 'NF', 'Off', 'Out'];
 }
 
 // Week A/B rotation defaults
@@ -242,14 +236,16 @@ function getDefaultAssignment(opsName, day, weekType) {
     return (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK';
   }
   // Rotation logic
+  // Only ONE of Nate/Zach is NF+MK per day. The other is NF only.
+  // Nate covers MK 4 days, Zach covers MK on Nate's off day from MK.
   const rotations = {
     'Nate': {
-      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'NF+MK', Saturday:'Off', Sunday:'Off' },
+      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'NF',    Saturday:'Off', Sunday:'Off' },
       B: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'Off',   Friday:'NF+MK', Saturday:'Off', Sunday:'Off' }
     },
     'Zach': {
-      A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'Off',   Thursday:'NF+MK', Friday:'Off',   Saturday:'Off', Sunday:'NF' },
-      B: { Monday:'NF+MK', Tuesday:'Off',   Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'Off',   Saturday:'Off', Sunday:'NF' }
+      A: { Monday:'NF',    Tuesday:'NF',    Wednesday:'NF',    Thursday:'NF',    Friday:'NF+MK', Saturday:'Off', Sunday:'NF'  },
+      B: { Monday:'NF',    Tuesday:'NF',    Wednesday:'NF',    Thursday:'NF+MK', Friday:'Off',   Saturday:'Off', Sunday:'NF'  }
     },
     'Steve': {
       A: { Monday:'NF', Tuesday:'NF', Wednesday:'NF', Thursday:'NF', Friday:'Off', Saturday:'Off', Sunday:'NF' },
@@ -373,8 +369,34 @@ function setAssign(opsName, day, val) {
   if (!weekSchedule[opsName]) weekSchedule[opsName] = {};
   if (!weekSchedule[opsName][day]) weekSchedule[opsName][day] = {};
   weekSchedule[opsName][day].assign = val;
-  // Rebuild solo button visibility
+
+  // Auto-redistribute if someone is marked Out
+  if (val === 'Out') redistributeDay(day);
   buildProdTable();
+}
+
+function redistributeDay(day) {
+  // If Nate is Out, Zach takes NF+MK. If Zach is Out, Nate takes NF+MK.
+  const nateAssign = weekSchedule['Nate']?.[day]?.assign;
+  const zachAssign = weekSchedule['Zach']?.[day]?.assign;
+
+  if (day === 'Saturday' || day === 'Sunday') return; // no MK on weekends
+
+  if (nateAssign === 'Out' && zachAssign !== 'Out' && zachAssign !== 'Off') {
+    // Nate is out — Zach covers MK
+    if (!weekSchedule['Zach']) weekSchedule['Zach'] = {};
+    if (!weekSchedule['Zach'][day]) weekSchedule['Zach'][day] = {};
+    weekSchedule['Zach'][day].assign = 'NF+MK';
+  } else if (zachAssign === 'Out' && nateAssign !== 'Out' && nateAssign !== 'Off') {
+    // Zach is out — Nate covers MK if not already
+    if (!weekSchedule['Nate']) weekSchedule['Nate'] = {};
+    if (!weekSchedule['Nate'][day]) weekSchedule['Nate'][day] = {};
+    if (weekSchedule['Nate'][day].assign !== 'NF+MK') {
+      weekSchedule['Nate'][day].assign = 'NF+MK';
+    }
+  }
+
+  // If Steve is Out, flag but no auto-change needed (Nate/Zach already on NF)
 }
 
 function toggleSolo(opsName, day, btn) {
@@ -451,7 +473,7 @@ async function pushToCalendar() {
   OPS_TEAM.forEach(ops => {
     DAYS.forEach((day, di) => {
       const assign = weekSchedule[ops.name]?.[day]?.assign || getDefaultAssignment(ops.name, day, 'A');
-      if (assign === 'Off') return;
+      if (assign === 'Off' || assign === 'Out') return;
       const isSolo = weekSchedule[ops.name]?.[day]?.solo || false;
       const dt = getDateForDay(wm, di);
       const dateStr = dt.toISOString().split('T')[0];
@@ -465,7 +487,7 @@ async function pushToCalendar() {
         start: dateStr + 'T08:00:00',
         end: dateStr + 'T08:30:00',
         description: desc,
-        color: assign === 'NF+MK' ? 'sage' : assign === 'MK' ? 'tomato' : 'banana'
+        color: assign === 'NF+MK' ? 'sage' : assign === 'MK' ? 'tomato' : assign === 'Out' ? 'flamingo' : 'banana'
       });
     });
   });
@@ -516,7 +538,8 @@ function renderScheduleView(wm, wd) {
       if (assign === 'NF+MK') { cls = 'nf-mk'; label = 'NF + MK'; }
       else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
       else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
-      if (isSolo && assign !== 'Off') sub = '<span class="assign-sub">solo day</span>';
+      else if (assign === 'Out') { cls = 'out'; label = 'Out'; }
+      if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
       html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
     });
     html += '</tr>';
