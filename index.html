@@ -148,6 +148,7 @@
       <label>Week of</label>
       <input type="date" id="sched-week" onchange="loadScheduleView()" />
       <button class="ghost-btn" onclick="loadScheduleView()">Refresh</button>
+      <button class="ghost-btn" onclick="downloadAllNfIcs()">Download all NF (.ics)</button>
     </div>
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:var(--nf-color);"></div>NF Only</div>
@@ -431,6 +432,46 @@ async function suggestRotation() {
     });
   });
 
+  // ----- Long-weekend rotation -----
+  // Once per month, one NF op (Nate/Zach/Steve) gets a 2-day pair off:
+  // either Fri+Sat or Sat+Sun. Matt is excluded — he's MK only and
+  // already off Sat+Sun.
+  //
+  // Rotation: deterministic from month number (year*12 + month) so the
+  // pick is stable across producers/browsers/sessions. Order: Nate, Zach, Steve.
+  // Skip rule: if the slated op has any Out days this week, skip them and
+  // try the next op in rotation.
+  //
+  // Activation rule: only one long-weekend per month. We mark "this is the
+  // long-weekend week" if it's the FIRST full Mon-start week of the month —
+  // i.e. the Monday of the week is in the same month as we're rotating for,
+  // and no earlier Monday in this month exists in this calendar.
+  const wmDate = new Date(wm + 'T12:00:00');
+  const monthYear = wmDate.getFullYear();
+  const monthIdx = wmDate.getMonth(); // 0-11
+  const LW_ORDER = ['Nate', 'Zach', 'Steve'];
+  const rotationIdx = (monthYear * 12 + monthIdx) % LW_ORDER.length;
+
+  // Is this the first Monday of its month? (i.e. day-of-month <= 7)
+  const isFirstWeekOfMonth = wmDate.getDate() <= 7;
+
+  let longWeekendOp = null;
+  let longWeekendPair = null; // ['Friday','Saturday'] or ['Saturday','Sunday']
+  if (isFirstWeekOfMonth) {
+    // Try the slated op first, skip if they have Out days this week
+    for (let offset = 0; offset < LW_ORDER.length; offset++) {
+      const candidate = LW_ORDER[(rotationIdx + offset) % LW_ORDER.length];
+      const hasOut = DAYS.some(d => outDays[candidate]?.[d]);
+      if (!hasOut) { longWeekendOp = candidate; break; }
+    }
+    if (longWeekendOp) {
+      // Default to Sat+Sun. If Sunday will be "off" anyway (no anchors),
+      // fall back to Fri+Sat so the pair actually means something.
+      // We don't know dayType yet, so pick provisionally and adjust below.
+      longWeekendPair = ['Saturday', 'Sunday'];
+    }
+  }
+
   // Fetch NF anchor counts
   let anchorCounts = {};
   DAYS.forEach(d => anchorCounts[d] = 0);
@@ -458,13 +499,20 @@ async function suggestRotation() {
     dayType[d] = c === 0 ? 'off' : c <= 2 ? 'light' : 'heavy';
   });
 
-  // Show counts
-  const display = document.getElementById('week-type-display');
-  display.innerHTML = DAYS.filter(d => d !== 'Saturday').map(d => {
-    const c = anchorCounts[d] || 0;
-    const col = dayType[d] === 'heavy' ? 'var(--accent)' : dayType[d] === 'light' ? 'var(--amber)' : 'var(--muted)';
-    return `<span style="font-size:10px;color:${col};margin-right:10px;">${d.slice(0,3)}: ${c} anchors</span>`;
-  }).join('');
+  // Finalize long-weekend pair now that dayType is known.
+  // Constraint: the long-weekend op still needs to hit 5 work days.
+  // - Sat+Sun pair → op works Mon-Fri = 5. Requires Sunday to be a work day for others,
+  //   so Sunday must NOT be 'off' (otherwise the pair is meaningless anyway).
+  // - Fri+Sat pair → op works Mon-Thu + Sun = 5. Requires Sunday to be active.
+  // In BOTH cases, Sunday must be active. If Sunday is off this week, defer the
+  // long-weekend rotation — the op can't hit 5 otherwise.
+  if (longWeekendOp && dayType.Sunday === 'off') {
+    console.log('Long weekend deferred: Sunday is off this week, no room for 5 work days.');
+    longWeekendOp = null;
+    longWeekendPair = null;
+  }
+
+  // (week-type-display rendering moved below, after long-weekend is finalized)
 
   // Build schedule
   weekSchedule = {};
@@ -476,6 +524,38 @@ async function suggestRotation() {
   // Apply Out days first so they're locked in before assignment
   OPS_TEAM.forEach(ops => { DAYS.forEach(day => { if (outDays[ops.name]?.[day]) weekSchedule[ops.name][day] = { assign: 'Out', solo: false }; }); });
 
+  // Apply the long-weekend lock. The non-Saturday day of the pair is set
+  // to 'Off' on the chosen op. Saturday is already always Off so no need
+  // to touch it. We track these "lockOff" days separately from Out so the
+  // make-up pass and Phase 1 filter both respect them, but they don't show
+  // as 'Out' in the UI (just regular Off).
+  const lockOff = { Nate: {}, Zach: {}, Steve: {} };
+  if (longWeekendOp && longWeekendPair) {
+    longWeekendPair.forEach(d => {
+      if (d !== 'Saturday') {
+        lockOff[longWeekendOp][d] = true;
+        // weekSchedule already defaulted to Off; leave it Off
+      }
+    });
+  }
+  if (longWeekendOp) {
+    console.log(`Long weekend this week: ${longWeekendOp} off ${longWeekendPair.join('+')}`);
+  } else if (isFirstWeekOfMonth) {
+    console.log('First week of month, but no eligible op for long weekend (all have Out days).');
+  }
+
+  // Render the week-type-display: day-by-day anchor counts plus long-weekend badge
+  const display = document.getElementById('week-type-display');
+  const dayParts = DAYS.filter(d => d !== 'Saturday').map(d => {
+    const c = anchorCounts[d] || 0;
+    const col = dayType[d] === 'heavy' ? 'var(--accent)' : dayType[d] === 'light' ? 'var(--amber)' : 'var(--muted)';
+    return `<span style="font-size:10px;color:${col};margin-right:10px;">${d.slice(0,3)}: ${c} anchors</span>`;
+  }).join('');
+  const lwBadge = longWeekendOp
+    ? `<div style="margin-top:6px;font-size:11px;color:var(--amber);">★ Long weekend: ${longWeekendOp} off ${longWeekendPair.join('+')}</div>`
+    : '';
+  display.innerHTML = dayParts + lwBadge;
+
   const NF_OPS = ['Nate', 'Zach', 'Steve'];
   const NF_DAYS_LIST = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
   const TARGET = 5;
@@ -485,6 +565,10 @@ async function suggestRotation() {
   console.log('Out days detected:', JSON.stringify(outDays));
   console.log('Starting workDays (real shifts only, Out excluded):', JSON.stringify(workDays));
 
+  // Helper: is this op "unavailable" for `day`? True if Out OR locked off
+  // for the long weekend.
+  const isUnavailable = (op, day) => !!(outDays[op]?.[day] || lockOff[op]?.[day]);
+
   // ----- PHASE 1: cover each NF day with the required number of ops -----
   // avail is now a SORT preference, not a hard filter. Anyone not Out is
   // eligible; sort by workDays asc so under-target ops get picked first.
@@ -493,7 +577,7 @@ async function suggestRotation() {
     const needTwo = dayType[day] === 'heavy';
     const slotsNeeded = needTwo ? 2 : 1;
     const avail = NF_OPS
-      .filter(n => !outDays[n]?.[day])
+      .filter(n => !isUnavailable(n, day))
       .sort((a, b) => workDays[a] - workDays[b]);
     const assigned = [];
 
@@ -548,7 +632,7 @@ async function suggestRotation() {
       // so adding there is fine).
       const candidate = NF_DAYS_LIST.find(d => {
         if (!isAssignableDay(d)) return false;
-        if (outDays[op]?.[d]) return false;
+        if (isUnavailable(op, d)) return false;
         const current = weekSchedule[op][d]?.assign;
         return current === 'Off'; // only fill genuinely empty days
       });
@@ -629,7 +713,7 @@ async function pushToCalendar() {
   if (!wm) { toast('Set a week first.'); return; }
   await saveSchedule();
 
-  // Build calendar events — one event per ops per day at 8:00 AM
+  // Build calendar events — one event per ops per day, 11:00 AM - 7:00 PM ET
   const events = [];
   OPS_TEAM.forEach(ops => {
     DAYS.forEach((day, di) => {
@@ -645,8 +729,8 @@ async function pushToCalendar() {
         assign,
         isSolo,
         title,
-        start: dateStr + 'T08:00:00',
-        end: dateStr + 'T08:30:00',
+        start: dateStr + 'T11:00:00',
+        end: dateStr + 'T19:00:00',
         description: desc,
         color: assign === 'NF+MK' ? 'sage' : assign === 'MK' ? 'tomato' : assign === 'Out' ? 'flamingo' : 'banana'
       });
@@ -712,31 +796,19 @@ function renderScheduleView(wm, wd) {
 }
 
 // ============================================================
-// PER-OP ICS DOWNLOAD
+// ICS DOWNLOAD
 // ============================================================
-async function downloadOpsICS(opsName, wm) {
-  toast(`Building ${opsName}'s schedule...`, 1500);
-  let wd = {};
-  try {
-    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
-    wd = r.success ? (r.weekData || {}) : {};
-  } catch(e) {
-    toast('Connection error.');
-    return;
-  }
 
-  const weekType = getWeekType(wm);
-  const opsRow = wd[opsName] || {};
-
-  // Build VEVENTs. RFC 5545: CRLF line endings, fold long lines, UTC stamps.
-  // Each work day = one event 8:00-8:30 AM in America/New_York.
-  const lines = [
+// Shared header: VCALENDAR open + VTIMEZONE block for America/New_York.
+// Returns an array of lines (not yet folded or joined).
+function buildIcsHeader(calName) {
+  return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//SteadyStreams//Ops Scheduler//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    `X-WR-CALNAME:${opsName} — Ops Schedule (week of ${wm})`,
+    `X-WR-CALNAME:${calName}`,
     'X-WR-TIMEZONE:America/New_York',
     // Minimal VTIMEZONE for America/New_York so Apple/Outlook display
     // the events at the right local time regardless of the importer's TZ.
@@ -758,10 +830,13 @@ async function downloadOpsICS(opsName, wm) {
     'END:DAYLIGHT',
     'END:VTIMEZONE'
   ];
+}
 
-  const dtstamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+// Build VEVENT lines for one op's week. Returns { lines, eventCount }.
+// Each work day = one event 11:00 AM - 7:00 PM ET. Skips Off/Out.
+function buildOpsVevents(opsName, opsRow, weekType, wm, dtstamp) {
+  const lines = [];
   let eventCount = 0;
-
   DAYS.forEach((day, di) => {
     const data = opsRow[day];
     const assign = data?.assign || getDefaultAssignment(opsName, day, weekType);
@@ -772,10 +847,10 @@ async function downloadOpsICS(opsName, wm) {
       + String(dt.getMonth()+1).padStart(2,'0')
       + String(dt.getDate()).padStart(2,'0');
     const summary = assign === 'NF+MK'
-      ? `Ops: NF + MK${isSolo ? ' (Solo)' : ''}`
+      ? `${opsName}: NF + MK${isSolo ? ' (Solo)' : ''}`
       : assign === 'NF'
-        ? `Ops: NF${isSolo ? ' (Solo)' : ''}`
-        : `Ops: ${assign}`;
+        ? `${opsName}: NF${isSolo ? ' (Solo)' : ''}`
+        : `${opsName}: ${assign}`;
     const desc = assign === 'NF+MK' ? 'NewsForce + MK Show'
                : assign === 'NF'    ? 'NewsForce'
                :                      'MK Show';
@@ -784,35 +859,95 @@ async function downloadOpsICS(opsName, wm) {
       'BEGIN:VEVENT',
       `UID:${uid}`,
       `DTSTAMP:${dtstamp}`,
-      `DTSTART;TZID=America/New_York:${ymd}T080000`,
-      `DTEND;TZID=America/New_York:${ymd}T083000`,
+      `DTSTART;TZID=America/New_York:${ymd}T110000`,
+      `DTEND;TZID=America/New_York:${ymd}T190000`,
       `SUMMARY:${icsEscape(summary)}`,
       `DESCRIPTION:${icsEscape(desc)}`,
       'END:VEVENT'
     );
     eventCount++;
   });
+  return { lines, eventCount };
+}
 
-  lines.push('END:VCALENDAR');
+// Trigger a browser download for a complete ICS string.
+function downloadIcsBlob(icsString, filename) {
+  const blob = new Blob([icsString], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
-  // Fold lines > 75 octets per RFC 5545, join with CRLF
-  const folded = lines.map(foldIcsLine).join('\r\n') + '\r\n';
+async function downloadOpsICS(opsName, wm) {
+  toast(`Building ${opsName}'s schedule...`, 1500);
+  let wd = {};
+  try {
+    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
+    wd = r.success ? (r.weekData || {}) : {};
+  } catch(e) {
+    toast('Connection error.');
+    return;
+  }
+
+  const weekType = getWeekType(wm);
+  const dtstamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+
+  const header = buildIcsHeader(`${opsName} — Ops Schedule (week of ${wm})`);
+  const { lines: vevents, eventCount } = buildOpsVevents(opsName, wd[opsName] || {}, weekType, wm, dtstamp);
 
   if (eventCount === 0) {
     toast(`${opsName} has no work days this week.`);
     return;
   }
 
-  const blob = new Blob([folded], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${opsName}-ops-${wm}.ics`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const allLines = [...header, ...vevents, 'END:VCALENDAR'];
+  const folded = allLines.map(foldIcsLine).join('\r\n') + '\r\n';
+  downloadIcsBlob(folded, `${opsName}-ops-${wm}.ics`);
   toast(`Downloaded ${opsName}'s schedule (${eventCount} events).`);
+}
+
+// Combined ICS for all NF ops (Nate + Zach + Steve). Matt excluded by design.
+async function downloadAllNfIcs() {
+  const wm = document.getElementById('sched-week').value;
+  if (!wm) { toast('Set a week first.'); return; }
+  toast('Building NF schedule...', 1500);
+
+  let wd = {};
+  try {
+    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
+    wd = r.success ? (r.weekData || {}) : {};
+  } catch(e) {
+    toast('Connection error.');
+    return;
+  }
+
+  const weekType = getWeekType(wm);
+  const dtstamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
+  const NF_OPS = ['Nate', 'Zach', 'Steve'];
+
+  const header = buildIcsHeader(`NF Ops Schedule (week of ${wm})`);
+  let allVevents = [];
+  let totalEvents = 0;
+  NF_OPS.forEach(name => {
+    const { lines, eventCount } = buildOpsVevents(name, wd[name] || {}, weekType, wm, dtstamp);
+    allVevents = allVevents.concat(lines);
+    totalEvents += eventCount;
+  });
+
+  if (totalEvents === 0) {
+    toast('No NF work days this week.');
+    return;
+  }
+
+  const allLines = [...header, ...allVevents, 'END:VCALENDAR'];
+  const folded = allLines.map(foldIcsLine).join('\r\n') + '\r\n';
+  downloadIcsBlob(folded, `NF-ops-${wm}.ics`);
+  toast(`Downloaded NF schedule (${totalEvents} events across ${NF_OPS.length} ops).`);
 }
 
 function icsEscape(s) {
