@@ -724,12 +724,15 @@ async function pushToCalendar() {
       const dateStr = dt.toISOString().split('T')[0];
       const title = `${ops.name} — ${assign}${isSolo ? ' (Solo)' : ''}`;
       const desc = assign === 'NF+MK' ? 'NewsForce + MK Show' : assign === 'NF' ? 'NewsForce' : 'MK Show';
+      // MK and NF+MK start 30 min early at 10:30 AM. NF-only starts 11:00 AM.
+      // All shifts end at 7:00 PM ET.
+      const startTime = (assign === 'MK' || assign === 'NF+MK') ? 'T10:30:00' : 'T11:00:00';
       events.push({
         opsName: ops.name,
         assign,
         isSolo,
         title,
-        start: dateStr + 'T11:00:00',
+        start: dateStr + startTime,
         end: dateStr + 'T19:00:00',
         description: desc,
         color: assign === 'NF+MK' ? 'sage' : assign === 'MK' ? 'tomato' : assign === 'Out' ? 'flamingo' : 'banana'
@@ -855,11 +858,13 @@ function buildOpsVevents(opsName, opsRow, weekType, wm, dtstamp) {
                : assign === 'NF'    ? 'NewsForce'
                :                      'MK Show';
     const uid = `${opsName}-${ymd}-${assign.replace('+','')}@steadystreams.ops`;
+    // MK and NF+MK start 30 min early at 10:30 AM. NF-only starts 11:00 AM.
+    const startTime = (assign === 'MK' || assign === 'NF+MK') ? 'T103000' : 'T110000';
     lines.push(
       'BEGIN:VEVENT',
       `UID:${uid}`,
       `DTSTAMP:${dtstamp}`,
-      `DTSTART;TZID=America/New_York:${ymd}T110000`,
+      `DTSTART;TZID=America/New_York:${ymd}${startTime}`,
       `DTEND;TZID=America/New_York:${ymd}T190000`,
       `SUMMARY:${icsEscape(summary)}`,
       `DESCRIPTION:${icsEscape(desc)}`,
