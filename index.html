@@ -745,7 +745,7 @@ function downloadSchedICS() {
       const solo = data?.solo ? ' (Solo)' : '';
       const stamp = new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
       // MK: 10:30 AM - 6:30 PM (8hrs), NF: 11:00 AM - 7:00 PM (8hrs), NF+MK: 10:30 AM - 7:00 PM
-      const startTime = (assign === 'MK') ? 'T103000' : 'T110000';
+      const startTime = (assign === 'NF') ? 'T110000' : 'T103000'; // MK and NF+MK start at 10:30, NF only at 11:00
       const endTime = 'T183000'; // All end at 6:30 PM ET
       const desc = assign === 'NF+MK' ? 'NewsForce (11AM-7PM) + MK Show (10:30AM-6:30PM)' : assign === 'NF' ? 'NewsForce 11:00 AM - 7:00 PM ET' : 'MK Show 10:30 AM - 6:30 PM ET';
       lines = lines.concat([
