@@ -696,8 +696,6 @@ async function loadScheduleView() {
   try {
     const r = await api({ action: 'getOpsWeek', weekMonday: wm });
     const wd = r.success ? (r.weekData || {}) : {};
-    if (r.showOffDays) wd._showOffDays = r.showOffDays;
-    if (r.mkShowOffDays) wd._mkShowOffDays = r.mkShowOffDays;
     renderScheduleView(wm, wd);
   } catch(e) {
     grid.innerHTML = '<div style="font-size:13px;color:var(--muted);">Connection error.</div>';
@@ -708,48 +706,33 @@ function renderScheduleView(wm, wd) {
   const grid = document.getElementById('schedule-grid');
   const weekType = getWeekType(wm);
 
-  function makeTable(days, dayShorts, title, offDaysList) {
-    let h = `<div style="margin-bottom:8px;"><span style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);">${title}</span></div>`;
-    h += '<div class="schedule-grid"><table class="grid-table"><thead><tr><th>Ops</th>';
-    days.forEach((day, di) => {
-      const dt = getDateForDay(wm, DAYS.indexOf(day));
-      const isOff = offDaysList.includes(day);
-      h += `<th class="day-col" style="${isOff?'opacity:0.4;':''}">${dayShorts[di]}<br><span style="font-weight:400;color:var(--muted);font-size:10px;">${fmtDate(dt)}${isOff?' (Off)':''}</span></th>`;
-    });
-    h += '</tr></thead><tbody>';
-    OPS_TEAM.forEach(ops => {
-      h += `<tr><td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
-      days.forEach(day => {
-        const data = wd[ops.name]?.[day];
-        const assign = data?.assign || 'Off';
-        const isSolo = data?.solo || false;
-        const isOff = offDaysList.includes(day);
-        let cls = 'off', label = 'Off', sub = '';
-        if (!isOff) {
-          if (assign === 'NF+MK') { cls = 'nf-mk'; label = 'NF + MK'; }
-          else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
-          else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
-          else if (assign === 'Out') { cls = 'out'; label = 'Out'; }
-          if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
-        }
-        h += `<td class="day-cell" style="${isOff?'opacity:0.3;':''}"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
-      });
-      h += '</tr>';
-    });
-    h += '</tbody></table></div>';
-    return h;
-  }
-
-  const nfDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
-  const nfShorts = ['Mon','Tue','Wed','Thu','Fri','Sun'];
-  const mkDays = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
-  const mkShorts = ['Mon','Tue','Wed','Thu','Fri'];
-
   let html = `<div style="margin-bottom:12px;"><span class="week-type-badge week-type-${weekType.toLowerCase()}">Week ${weekType} Rotation</span></div>`;
-  html += makeTable(nfDays, nfShorts, 'NewsForce (NF)', wd._showOffDays||[]);
-  html += '<div style="margin:1.5rem 0;border-top:1px solid var(--border);"></div>';
-  html += makeTable(mkDays, mkShorts, 'MK Show', wd._mkShowOffDays||[]);
+  html += '<div class="schedule-grid"><table class="grid-table"><thead><tr><th>Ops</th>';
 
+  DAYS.forEach((day, di) => {
+    const dt = getDateForDay(wm, di);
+    html += `<th class="day-col">${DAY_SHORT[di]}<br><span style="font-weight:400;color:var(--muted);font-size:10px;">${fmtDate(dt)}</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  OPS_TEAM.forEach(ops => {
+    html += `<tr><td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
+    DAYS.forEach(day => {
+      const data = wd[ops.name]?.[day];
+      const assign = data?.assign || 'Off';
+      const isSolo = data?.solo || false;
+      let cls = 'off', label = 'Off', sub = '';
+      if (assign === 'NF+MK') { cls = 'nf-mk'; label = 'NF + MK'; }
+      else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
+      else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
+      else if (assign === 'Out') { cls = 'out'; label = 'Out'; }
+      if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
+      html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
   grid.innerHTML = html;
 }
 
