@@ -84,8 +84,6 @@
     .solo-toggle{display:flex;align-items:center;justify-content:center;margin-top:3px;}
     .solo-btn{font-size:9px;padding:2px 6px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;font-family:'Barlow',sans-serif;transition:all 0.15s;}
     .solo-btn.active{background:rgba(255,159,10,0.15);border-color:var(--amber);color:var(--amber);}
-    .ics-btn{font-size:11px;padding:4px 10px;letter-spacing:0.04em;}
-    .ics-btn:hover{background:var(--accent);color:var(--black);border-color:var(--accent);}
 
     /* PASSWORD */
     .pw-screen{position:fixed;inset:0;background:var(--black);z-index:200;display:flex;align-items:center;justify-content:center;}
@@ -148,7 +146,6 @@
       <label>Week of</label>
       <input type="date" id="sched-week" onchange="loadScheduleView()" />
       <button class="ghost-btn" onclick="loadScheduleView()">Refresh</button>
-      <button class="ghost-btn" onclick="downloadAllNfIcs()">Download all NF (.ics)</button>
     </div>
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:var(--nf-color);"></div>NF Only</div>
@@ -177,7 +174,6 @@
       <input type="date" id="prod-week" onchange="loadProducerWeek()" />
       <button class="ghost-btn" onclick="loadProducerWeek()">Load week</button>
       <button class="ghost-btn" onclick="suggestRotation()">Suggest rotation</button>
-      <button class="ghost-btn" onclick="saveSchedule()">Save</button>
     </div>
 
     <div id="week-type-display" style="margin-bottom:1rem;"></div>
@@ -223,9 +219,9 @@ function getOptions(ops, day) {
     return (day === 'Saturday' || day === 'Sunday') ? ['Off', 'Out'] : ['MK', 'Out'];
   }
   if (day === 'Saturday') return ['Off', 'Out'];
-  if (day === 'Sunday') return ops.name === 'Steve' ? ['NF', 'Off', 'Out'] : ['NF', 'Off', 'Out'];
-  if (ops.name === 'Steve') return ['NF', 'Off', 'Out'];
-  return ['NF+MK', 'NF', 'Off', 'Out'];
+  if (day === 'Sunday') return ['NF', 'Off', 'Out'];
+  if (ops.name === 'Steve') return ['NF', 'MK', 'Off', 'Out'];
+  return ['NF+MK', 'NF', 'MK', 'Off', 'Out'];
 }
 
 // Week A/B rotation defaults
@@ -420,9 +416,7 @@ async function suggestRotation() {
   if (!wm) { toast('Set a week first.'); return; }
   toast('Loading NF schedule...', 2000);
 
-  // Read ALL Out assignments from current weekSchedule.
-  // Out = time off. Does NOT count toward the 5-day target — a make-up
-  // pass at the end ensures the op still hits 5 real work shifts.
+  // Read ALL Out and Off assignments from current weekSchedule
   const outDays = {};
   OPS_TEAM.forEach(ops => {
     outDays[ops.name] = {};
@@ -431,46 +425,11 @@ async function suggestRotation() {
       if (a === 'Out') outDays[ops.name][day] = true;
     });
   });
-
-  // ----- Long-weekend rotation -----
-  // Once per month, one NF op (Nate/Zach/Steve) gets a 2-day pair off:
-  // either Fri+Sat or Sat+Sun. Matt is excluded — he's MK only and
-  // already off Sat+Sun.
-  //
-  // Rotation: deterministic from month number (year*12 + month) so the
-  // pick is stable across producers/browsers/sessions. Order: Nate, Zach, Steve.
-  // Skip rule: if the slated op has any Out days this week, skip them and
-  // try the next op in rotation.
-  //
-  // Activation rule: only one long-weekend per month. We mark "this is the
-  // long-weekend week" if it's the FIRST full Mon-start week of the month —
-  // i.e. the Monday of the week is in the same month as we're rotating for,
-  // and no earlier Monday in this month exists in this calendar.
-  const wmDate = new Date(wm + 'T12:00:00');
-  const monthYear = wmDate.getFullYear();
-  const monthIdx = wmDate.getMonth(); // 0-11
-  const LW_ORDER = ['Nate', 'Zach', 'Steve'];
-  const rotationIdx = (monthYear * 12 + monthIdx) % LW_ORDER.length;
-
-  // Is this the first Monday of its month? (i.e. day-of-month <= 7)
-  const isFirstWeekOfMonth = wmDate.getDate() <= 7;
-
-  let longWeekendOp = null;
-  let longWeekendPair = null; // ['Friday','Saturday'] or ['Saturday','Sunday']
-  if (isFirstWeekOfMonth) {
-    // Try the slated op first, skip if they have Out days this week
-    for (let offset = 0; offset < LW_ORDER.length; offset++) {
-      const candidate = LW_ORDER[(rotationIdx + offset) % LW_ORDER.length];
-      const hasOut = DAYS.some(d => outDays[candidate]?.[d]);
-      if (!hasOut) { longWeekendOp = candidate; break; }
-    }
-    if (longWeekendOp) {
-      // Default to Sat+Sun. If Sunday will be "off" anyway (no anchors),
-      // fall back to Fri+Sat so the pair actually means something.
-      // We don't know dayType yet, so pick provisionally and adjust below.
-      longWeekendPair = ['Saturday', 'Sunday'];
-    }
-  }
+  // Also read manual Off overrides (non-default)
+  const manualOff = {};
+  OPS_TEAM.forEach(ops => {
+    manualOff[ops.name] = {};
+  });
 
   // Fetch NF anchor counts
   let anchorCounts = {};
@@ -499,20 +458,13 @@ async function suggestRotation() {
     dayType[d] = c === 0 ? 'off' : c <= 2 ? 'light' : 'heavy';
   });
 
-  // Finalize long-weekend pair now that dayType is known.
-  // Constraint: the long-weekend op still needs to hit 5 work days.
-  // - Sat+Sun pair → op works Mon-Fri = 5. Requires Sunday to be a work day for others,
-  //   so Sunday must NOT be 'off' (otherwise the pair is meaningless anyway).
-  // - Fri+Sat pair → op works Mon-Thu + Sun = 5. Requires Sunday to be active.
-  // In BOTH cases, Sunday must be active. If Sunday is off this week, defer the
-  // long-weekend rotation — the op can't hit 5 otherwise.
-  if (longWeekendOp && dayType.Sunday === 'off') {
-    console.log('Long weekend deferred: Sunday is off this week, no room for 5 work days.');
-    longWeekendOp = null;
-    longWeekendPair = null;
-  }
-
-  // (week-type-display rendering moved below, after long-weekend is finalized)
+  // Show counts
+  const display = document.getElementById('week-type-display');
+  display.innerHTML = DAYS.filter(d => d !== 'Saturday').map(d => {
+    const c = anchorCounts[d] || 0;
+    const col = dayType[d] === 'heavy' ? 'var(--accent)' : dayType[d] === 'light' ? 'var(--amber)' : 'var(--muted)';
+    return `<span style="font-size:10px;color:${col};margin-right:10px;">${d.slice(0,3)}: ${c} anchors</span>`;
+  }).join('');
 
   // Build schedule
   weekSchedule = {};
@@ -521,69 +473,26 @@ async function suggestRotation() {
   // Matt: always MK Mon-Fri
   DAYS.forEach(day => { weekSchedule['Matt'][day] = { assign: (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK', solo: false }; });
 
-  // Apply Out days first so they're locked in before assignment
+  // Apply Out days
   OPS_TEAM.forEach(ops => { DAYS.forEach(day => { if (outDays[ops.name]?.[day]) weekSchedule[ops.name][day] = { assign: 'Out', solo: false }; }); });
-
-  // Apply the long-weekend lock. The non-Saturday day of the pair is set
-  // to 'Off' on the chosen op. Saturday is already always Off so no need
-  // to touch it. We track these "lockOff" days separately from Out so the
-  // make-up pass and Phase 1 filter both respect them, but they don't show
-  // as 'Out' in the UI (just regular Off).
-  const lockOff = { Nate: {}, Zach: {}, Steve: {} };
-  if (longWeekendOp && longWeekendPair) {
-    longWeekendPair.forEach(d => {
-      if (d !== 'Saturday') {
-        lockOff[longWeekendOp][d] = true;
-        // weekSchedule already defaulted to Off; leave it Off
-      }
-    });
-  }
-  if (longWeekendOp) {
-    console.log(`Long weekend this week: ${longWeekendOp} off ${longWeekendPair.join('+')}`);
-  } else if (isFirstWeekOfMonth) {
-    console.log('First week of month, but no eligible op for long weekend (all have Out days).');
-  }
-
-  // Render the week-type-display: day-by-day anchor counts plus long-weekend badge
-  const display = document.getElementById('week-type-display');
-  const dayParts = DAYS.filter(d => d !== 'Saturday').map(d => {
-    const c = anchorCounts[d] || 0;
-    const col = dayType[d] === 'heavy' ? 'var(--accent)' : dayType[d] === 'light' ? 'var(--amber)' : 'var(--muted)';
-    return `<span style="font-size:10px;color:${col};margin-right:10px;">${d.slice(0,3)}: ${c} anchors</span>`;
-  }).join('');
-  const lwBadge = longWeekendOp
-    ? `<div style="margin-top:6px;font-size:11px;color:var(--amber);">★ Long weekend: ${longWeekendOp} off ${longWeekendPair.join('+')}</div>`
-    : '';
-  display.innerHTML = dayParts + lwBadge;
 
   const NF_OPS = ['Nate', 'Zach', 'Steve'];
   const NF_DAYS_LIST = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
   const TARGET = 5;
   const mkCount = { Nate: 0, Zach: 0 };
-  // workDays tracks REAL work shifts only — Out days excluded.
-  const workDays = { Nate: 0, Zach: 0, Steve: 0 };
+  const workDays = {};
+  NF_OPS.forEach(n => { workDays[n] = DAYS.filter(d => outDays[n]?.[d]).length; });
   console.log('Out days detected:', JSON.stringify(outDays));
-  console.log('Starting workDays (real shifts only, Out excluded):', JSON.stringify(workDays));
+  console.log('Starting workDays (Out counts):', JSON.stringify(workDays));
 
-  // Helper: is this op "unavailable" for `day`? True if Out OR locked off
-  // for the long weekend.
-  const isUnavailable = (op, day) => !!(outDays[op]?.[day] || lockOff[op]?.[day]);
-
-  // ----- PHASE 1: cover each NF day with the required number of ops -----
-  // avail is now a SORT preference, not a hard filter. Anyone not Out is
-  // eligible; sort by workDays asc so under-target ops get picked first.
-  NF_DAYS_LIST.forEach(day => {
+  NF_DAYS_LIST.forEach((day, dayIdx) => {
     if (dayType[day] === 'off') return;
     const needTwo = dayType[day] === 'heavy';
-    const slotsNeeded = needTwo ? 2 : 1;
-    const avail = NF_OPS
-      .filter(n => !isUnavailable(n, day))
-      .sort((a, b) => workDays[a] - workDays[b]);
+    const avail = NF_OPS.filter(n => !outDays[n]?.[day] && workDays[n] < TARGET);
     const assigned = [];
 
+    // Assign MK op (Mon-Fri only, not Sunday)
     if (day !== 'Sunday') {
-      // Mon-Fri: pick the MK op first (NF+MK slot)
-      // Preference: Nate up to 4 MK days, then Zach up to 1, then either.
       let mkOp = null;
       if (avail.includes('Nate') && mkCount.Nate < 4) mkOp = 'Nate';
       else if (avail.includes('Zach') && mkCount.Zach < 1) mkOp = 'Zach';
@@ -596,75 +505,40 @@ async function suggestRotation() {
         mkCount[mkOp]++;
         assigned.push(mkOp);
       }
+    } else {
+      // Sunday - NF only, no MK
+      // Pick ops sorted by fewest days first
+      const sundayAvail = avail.sort((a,b) => workDays[a] - workDays[b]);
+      const needTwoSun = dayType[day] === 'heavy';
+      sundayAvail.slice(0, needTwoSun ? 2 : 1).forEach(pick => {
+        weekSchedule[pick][day] = { assign: 'NF', solo: !needTwoSun };
+        workDays[pick]++;
+        assigned.push(pick);
+      });
     }
 
-    // Fill remaining NF slots from the under-worked end of avail.
-    const remaining = avail.filter(n => !assigned.includes(n));
-    while (assigned.length < slotsNeeded && remaining.length) {
-      const pick = remaining.shift();
-      weekSchedule[pick][day] = { assign: 'NF', solo: false };
-      workDays[pick]++;
-      assigned.push(pick);
-    }
+    // Fill remaining slots - allow 3 ops if needed to hit 5-day target
+    const remaining = avail.filter(n => !assigned.includes(n)).sort((a,b) => workDays[a] - workDays[b]);
+    const minSlots = Math.max(0, (needTwo ? 2 : 1) - assigned.length);
+    const daysLeft = NF_DAYS_LIST.length - dayIdx - 1;
 
-    // Mark solo if exactly 1 NF op covers a light Mon-Fri day
+    remaining.forEach((pick, i) => {
+      const picksNeeded = TARGET - workDays[pick];
+      if (i < minSlots || picksNeeded > daysLeft) {
+        weekSchedule[pick][day] = { assign: 'NF', solo: false };
+        workDays[pick]++;
+        assigned.push(pick);
+      }
+    });
+
+    // Mark solo if only 1 NF op today
     if (assigned.length === 1 && day !== 'Sunday') {
       weekSchedule[assigned[0]][day].solo = true;
     }
   });
 
-  // ----- PHASE 2: make-up pass for the 5-day target -----
-  // Any NF op below TARGET gets backfilled onto a non-Out NF day where
-  // they aren't already assigned, as an extra NF body. This is what makes
-  // Out days "rebuild and replace" instead of silently shrinking the week.
-  const isAssignableDay = d => d !== 'Saturday' && dayType[d] !== 'off';
-  let safety = 30; // hard cap so a bad config can't infinite-loop
-  let progress = true;
-  while (progress && safety-- > 0) {
-    progress = false;
-    // Sort ops by who's furthest from TARGET first
-    const needing = NF_OPS
-      .filter(n => workDays[n] < TARGET)
-      .sort((a, b) => workDays[a] - workDays[b]);
-    for (const op of needing) {
-      // Find a day they could be added to: not Out, not Saturday/off,
-      // not already assigned, and not Sunday-MK (Sundays are NF only,
-      // so adding there is fine).
-      const candidate = NF_DAYS_LIST.find(d => {
-        if (!isAssignableDay(d)) return false;
-        if (isUnavailable(op, d)) return false;
-        const current = weekSchedule[op][d]?.assign;
-        return current === 'Off'; // only fill genuinely empty days
-      });
-      if (candidate) {
-        weekSchedule[op][candidate] = { assign: 'NF', solo: false };
-        workDays[op]++;
-        // If this day was previously a solo NF day, it isn't anymore.
-        NF_OPS.forEach(other => {
-          if (other !== op && weekSchedule[other][candidate]?.solo) {
-            weekSchedule[other][candidate].solo = false;
-          }
-        });
-        progress = true;
-        break; // re-evaluate sort order after each addition
-      }
-    }
-  }
-
-  console.log('Final workDays:', JSON.stringify(workDays));
-  console.log('Final mkCount:', JSON.stringify(mkCount));
-
-  // Warn if anyone fell short of TARGET. This happens when Out days +
-  // unavailable days (Saturday, no-anchor days) leave fewer than TARGET
-  // open slots — mathematically impossible to hit 5, not a bug.
-  const shortOps = NF_OPS.filter(n => workDays[n] < TARGET);
   buildProdTable();
-  if (shortOps.length) {
-    const details = shortOps.map(n => `${n}: ${workDays[n]}/5`).join(', ');
-    toast(`Rotation suggested — short week for ${details}`, 4500);
-  } else {
-    toast('Rotation suggested!');
-  }
+  toast('Rotation suggested!');
 }
 
 async function loadProducerWeek() {
@@ -713,7 +587,7 @@ async function pushToCalendar() {
   if (!wm) { toast('Set a week first.'); return; }
   await saveSchedule();
 
-  // Build calendar events — one event per ops per day, 11:00 AM - 7:00 PM ET
+  // Build calendar events — one event per ops per day at 8:00 AM
   const events = [];
   OPS_TEAM.forEach(ops => {
     DAYS.forEach((day, di) => {
@@ -724,16 +598,13 @@ async function pushToCalendar() {
       const dateStr = dt.toISOString().split('T')[0];
       const title = `${ops.name} — ${assign}${isSolo ? ' (Solo)' : ''}`;
       const desc = assign === 'NF+MK' ? 'NewsForce + MK Show' : assign === 'NF' ? 'NewsForce' : 'MK Show';
-      // MK and NF+MK start 30 min early at 10:30 AM. NF-only starts 11:00 AM.
-      // All shifts end at 7:00 PM ET.
-      const startTime = (assign === 'MK' || assign === 'NF+MK') ? 'T10:30:00' : 'T11:00:00';
       events.push({
         opsName: ops.name,
         assign,
         isSolo,
         title,
-        start: dateStr + startTime,
-        end: dateStr + 'T19:00:00',
+        start: dateStr + 'T08:00:00',
+        end: dateStr + 'T08:30:00',
         description: desc,
         color: assign === 'NF+MK' ? 'sage' : assign === 'MK' ? 'tomato' : assign === 'Out' ? 'flamingo' : 'banana'
       });
@@ -774,7 +645,7 @@ function renderScheduleView(wm, wd) {
     const dt = getDateForDay(wm, di);
     html += `<th class="day-col">${DAY_SHORT[di]}<br><span style="font-weight:400;color:var(--muted);font-size:10px;">${fmtDate(dt)}</span></th>`;
   });
-  html += '<th class="day-col" style="min-width:80px;">Download</th></tr></thead><tbody>';
+  html += '</tr></thead><tbody>';
 
   OPS_TEAM.forEach(ops => {
     html += `<tr><td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
@@ -790,198 +661,11 @@ function renderScheduleView(wm, wd) {
       if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
       html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
     });
-    html += `<td class="day-cell"><button class="ghost-btn ics-btn" onclick="downloadOpsICS('${ops.name}','${wm}')" title="Download .ics calendar file for ${ops.name}">.ics</button></td>`;
     html += '</tr>';
   });
 
   html += '</tbody></table></div>';
   grid.innerHTML = html;
-}
-
-// ============================================================
-// ICS DOWNLOAD
-// ============================================================
-
-// Shared header: VCALENDAR open + VTIMEZONE block for America/New_York.
-// Returns an array of lines (not yet folded or joined).
-function buildIcsHeader(calName) {
-  return [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//SteadyStreams//Ops Scheduler//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    `X-WR-CALNAME:${calName}`,
-    'X-WR-TIMEZONE:America/New_York',
-    // Minimal VTIMEZONE for America/New_York so Apple/Outlook display
-    // the events at the right local time regardless of the importer's TZ.
-    'BEGIN:VTIMEZONE',
-    'TZID:America/New_York',
-    'BEGIN:STANDARD',
-    'DTSTART:20071104T020000',
-    'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
-    'TZOFFSETFROM:-0400',
-    'TZOFFSETTO:-0500',
-    'TZNAME:EST',
-    'END:STANDARD',
-    'BEGIN:DAYLIGHT',
-    'DTSTART:20070311T020000',
-    'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
-    'TZOFFSETFROM:-0500',
-    'TZOFFSETTO:-0400',
-    'TZNAME:EDT',
-    'END:DAYLIGHT',
-    'END:VTIMEZONE'
-  ];
-}
-
-// Build VEVENT lines for one op's week. Returns { lines, eventCount }.
-// Each work day = one event 11:00 AM - 7:00 PM ET. Skips Off/Out.
-function buildOpsVevents(opsName, opsRow, weekType, wm, dtstamp) {
-  const lines = [];
-  let eventCount = 0;
-  DAYS.forEach((day, di) => {
-    const data = opsRow[day];
-    const assign = data?.assign || getDefaultAssignment(opsName, day, weekType);
-    if (assign === 'Off' || assign === 'Out') return;
-    const isSolo = data?.solo || false;
-    const dt = getDateForDay(wm, di);
-    const ymd = dt.getFullYear()
-      + String(dt.getMonth()+1).padStart(2,'0')
-      + String(dt.getDate()).padStart(2,'0');
-    const summary = assign === 'NF+MK'
-      ? `${opsName}: NF + MK${isSolo ? ' (Solo)' : ''}`
-      : assign === 'NF'
-        ? `${opsName}: NF${isSolo ? ' (Solo)' : ''}`
-        : `${opsName}: ${assign}`;
-    const desc = assign === 'NF+MK' ? 'NewsForce + MK Show'
-               : assign === 'NF'    ? 'NewsForce'
-               :                      'MK Show';
-    const uid = `${opsName}-${ymd}-${assign.replace('+','')}@steadystreams.ops`;
-    // MK and NF+MK start 30 min early at 10:30 AM. NF-only starts 11:00 AM.
-    const startTime = (assign === 'MK' || assign === 'NF+MK') ? 'T103000' : 'T110000';
-    lines.push(
-      'BEGIN:VEVENT',
-      `UID:${uid}`,
-      `DTSTAMP:${dtstamp}`,
-      `DTSTART;TZID=America/New_York:${ymd}${startTime}`,
-      `DTEND;TZID=America/New_York:${ymd}T190000`,
-      `SUMMARY:${icsEscape(summary)}`,
-      `DESCRIPTION:${icsEscape(desc)}`,
-      'END:VEVENT'
-    );
-    eventCount++;
-  });
-  return { lines, eventCount };
-}
-
-// Trigger a browser download for a complete ICS string.
-function downloadIcsBlob(icsString, filename) {
-  const blob = new Blob([icsString], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-async function downloadOpsICS(opsName, wm) {
-  toast(`Building ${opsName}'s schedule...`, 1500);
-  let wd = {};
-  try {
-    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
-    wd = r.success ? (r.weekData || {}) : {};
-  } catch(e) {
-    toast('Connection error.');
-    return;
-  }
-
-  const weekType = getWeekType(wm);
-  const dtstamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
-
-  const header = buildIcsHeader(`${opsName} — Ops Schedule (week of ${wm})`);
-  const { lines: vevents, eventCount } = buildOpsVevents(opsName, wd[opsName] || {}, weekType, wm, dtstamp);
-
-  if (eventCount === 0) {
-    toast(`${opsName} has no work days this week.`);
-    return;
-  }
-
-  const allLines = [...header, ...vevents, 'END:VCALENDAR'];
-  const folded = allLines.map(foldIcsLine).join('\r\n') + '\r\n';
-  downloadIcsBlob(folded, `${opsName}-ops-${wm}.ics`);
-  toast(`Downloaded ${opsName}'s schedule (${eventCount} events).`);
-}
-
-// Combined ICS for all NF ops (Nate + Zach + Steve). Matt excluded by design.
-async function downloadAllNfIcs() {
-  const wm = document.getElementById('sched-week').value;
-  if (!wm) { toast('Set a week first.'); return; }
-  toast('Building NF schedule...', 1500);
-
-  let wd = {};
-  try {
-    const r = await api({ action: 'getOpsWeek', weekMonday: wm });
-    wd = r.success ? (r.weekData || {}) : {};
-  } catch(e) {
-    toast('Connection error.');
-    return;
-  }
-
-  const weekType = getWeekType(wm);
-  const dtstamp = new Date().toISOString().replace(/[-:]/g,'').split('.')[0] + 'Z';
-  const NF_OPS = ['Nate', 'Zach', 'Steve'];
-
-  const header = buildIcsHeader(`NF Ops Schedule (week of ${wm})`);
-  let allVevents = [];
-  let totalEvents = 0;
-  NF_OPS.forEach(name => {
-    const { lines, eventCount } = buildOpsVevents(name, wd[name] || {}, weekType, wm, dtstamp);
-    allVevents = allVevents.concat(lines);
-    totalEvents += eventCount;
-  });
-
-  if (totalEvents === 0) {
-    toast('No NF work days this week.');
-    return;
-  }
-
-  const allLines = [...header, ...allVevents, 'END:VCALENDAR'];
-  const folded = allLines.map(foldIcsLine).join('\r\n') + '\r\n';
-  downloadIcsBlob(folded, `NF-ops-${wm}.ics`);
-  toast(`Downloaded NF schedule (${totalEvents} events across ${NF_OPS.length} ops).`);
-}
-
-function icsEscape(s) {
-  // RFC 5545: escape \ ; , and newlines inside TEXT values
-  return String(s)
-    .replace(/\\/g, '\\\\')
-    .replace(/;/g, '\\;')
-    .replace(/,/g, '\\,')
-    .replace(/\r?\n/g, '\\n');
-}
-
-function foldIcsLine(line) {
-  // RFC 5545 line folding: lines >75 octets split, continuation starts with space.
-  // We measure by UTF-8 byte length to be safe.
-  const enc = new TextEncoder();
-  if (enc.encode(line).length <= 75) return line;
-  const out = [];
-  let buf = '';
-  for (const ch of line) {
-    const next = buf + ch;
-    if (enc.encode(next).length > 75) {
-      out.push(buf);
-      buf = ' ' + ch; // continuation line prefix
-    } else {
-      buf = next;
-    }
-  }
-  if (buf) out.push(buf);
-  return out.join('\r\n');
 }
 
 // INIT
