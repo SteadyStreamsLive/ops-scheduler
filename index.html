@@ -178,8 +178,10 @@
 
     <div id="week-type-display" style="margin-bottom:1rem;"></div>
 
-    <div class="section-label">Show off days</div>
+    <div class="section-label">NF Off Days</div>
     <div id="show-offday-grid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem;"></div>
+    <div class="section-label">MK Off Days</div>
+    <div id="mk-offday-grid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem;"></div>
 
     <div class="section-label">Weekly assignments</div>
     <div class="prod-grid">
@@ -256,7 +258,8 @@ function getDefaultAssignment(opsName, day, weekType) {
 }
 
 let weekSchedule = {};
-let showOffDays = [];
+let showOffDays = []; // NF off days
+let mkShowOffDays = []; // MK off days
 let producerUnlocked = false;
 
 function toast(msg, ms=2500) {
@@ -299,6 +302,7 @@ function checkPassword() {
     document.getElementById('pw-screen').style.display = 'none';
     switchView('producer', window._pendingBtn);
     buildShowOffDayGrid();
+    buildMKOffDayGrid();
     buildProdTable();
   } else {
     document.getElementById('pw-input').classList.add('error');
@@ -330,11 +334,37 @@ function fmtDate(d) {
 // ============================================================
 // PRODUCER VIEW
 // ============================================================
+function buildMKOffDayGrid() {
+  const wm = document.getElementById('prod-week').value;
+  const grid = document.getElementById('mk-offday-grid');
+  if (!grid) return;
+  const mkDays = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+  grid.innerHTML = mkDays.map((day, i) => {
+    const di = DAYS.indexOf(day);
+    const dt = wm ? getDateForDay(wm, di) : null;
+    const ds = dt ? fmtDate(dt) : '';
+    const isOff = mkShowOffDays.includes(day);
+    return `<div onclick="toggleMKOff('${day}',this)" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:4px;border:1px solid ${isOff?'rgba(196,18,48,0.4)':'var(--border2)'};background:${isOff?'rgba(196,18,48,0.12)':'var(--dark2)'};font-size:12px;font-weight:600;color:${isOff?'#ff4060':'var(--muted)'};cursor:pointer;user-select:none;transition:all 0.15s;">
+      <span style="width:6px;height:6px;border-radius:50%;background:${isOff?'#ff4060':'var(--border2)'};flex-shrink:0;"></span>
+      ${day.slice(0,3)} ${ds}
+    </div>`;
+  }).join('');
+}
+
+function toggleMKOff(day, el) {
+  if (mkShowOffDays.includes(day)) mkShowOffDays = mkShowOffDays.filter(d => d !== day);
+  else mkShowOffDays.push(day);
+  buildMKOffDayGrid();
+  buildProdTable();
+}
+
 function buildShowOffDayGrid() {
   const wm = document.getElementById('prod-week').value;
   const grid = document.getElementById('show-offday-grid');
   if (!grid) return;
-  grid.innerHTML = DAYS.map((day, i) => {
+  const nfDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
+  grid.innerHTML = nfDays.map((day) => {
+    const i = DAYS.indexOf(day);
     const dt = wm ? getDateForDay(wm, i) : null;
     const ds = dt ? fmtDate(dt) : '';
     const isOff = showOffDays.includes(day);
@@ -583,11 +613,13 @@ async function loadProducerWeek() {
     if (r.success && r.weekData) {
       weekSchedule = r.weekData;
       if (r.showOffDays) showOffDays = r.showOffDays;
+      if (r.mkShowOffDays) mkShowOffDays = r.mkShowOffDays;
       document.getElementById('sched-notes').value = r.notes || '';
     } else {
       suggestRotation();
     }
     buildShowOffDayGrid();
+    buildMKOffDayGrid();
     buildProdTable();
   } catch(e) {
     suggestRotation();
@@ -613,7 +645,7 @@ async function saveSchedule() {
   });
   const notes = document.getElementById('sched-notes').value;
   try {
-    const r = await api({ action: 'saveOpsWeek', weekMonday: wm, weekData: weekSchedule, notes, showOffDays });
+    const r = await api({ action: 'saveOpsWeek', weekMonday: wm, weekData: weekSchedule, notes, showOffDays, mkShowOffDays });
     toast(r.success ? 'Saved!' : 'Error: ' + r.error);
   } catch(e) { toast('Connection error.'); }
 }
@@ -664,6 +696,8 @@ async function loadScheduleView() {
   try {
     const r = await api({ action: 'getOpsWeek', weekMonday: wm });
     const wd = r.success ? (r.weekData || {}) : {};
+    if (r.showOffDays) wd._showOffDays = r.showOffDays;
+    if (r.mkShowOffDays) wd._mkShowOffDays = r.mkShowOffDays;
     renderScheduleView(wm, wd);
   } catch(e) {
     grid.innerHTML = '<div style="font-size:13px;color:var(--muted);">Connection error.</div>';
@@ -674,33 +708,48 @@ function renderScheduleView(wm, wd) {
   const grid = document.getElementById('schedule-grid');
   const weekType = getWeekType(wm);
 
-  let html = `<div style="margin-bottom:12px;"><span class="week-type-badge week-type-${weekType.toLowerCase()}">Week ${weekType} Rotation</span></div>`;
-  html += '<div class="schedule-grid"><table class="grid-table"><thead><tr><th>Ops</th>';
-
-  DAYS.forEach((day, di) => {
-    const dt = getDateForDay(wm, di);
-    html += `<th class="day-col">${DAY_SHORT[di]}<br><span style="font-weight:400;color:var(--muted);font-size:10px;">${fmtDate(dt)}</span></th>`;
-  });
-  html += '</tr></thead><tbody>';
-
-  OPS_TEAM.forEach(ops => {
-    html += `<tr><td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
-    DAYS.forEach(day => {
-      const data = wd[ops.name]?.[day];
-      const assign = data?.assign || getDefaultAssignment(ops.name, day, weekType);
-      const isSolo = data?.solo || false;
-      let cls = 'off', label = 'Off', sub = '';
-      if (assign === 'NF+MK') { cls = 'nf-mk'; label = 'NF + MK'; }
-      else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
-      else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
-      else if (assign === 'Out') { cls = 'out'; label = 'Out'; }
-      if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
-      html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
+  function makeTable(days, dayShorts, title, offDaysList) {
+    let h = `<div style="margin-bottom:8px;"><span style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);">${title}</span></div>`;
+    h += '<div class="schedule-grid"><table class="grid-table"><thead><tr><th>Ops</th>';
+    days.forEach((day, di) => {
+      const dt = getDateForDay(wm, DAYS.indexOf(day));
+      const isOff = offDaysList.includes(day);
+      h += `<th class="day-col" style="${isOff?'opacity:0.4;':''}">${dayShorts[di]}<br><span style="font-weight:400;color:var(--muted);font-size:10px;">${fmtDate(dt)}${isOff?' (Off)':''}</span></th>`;
     });
-    html += '</tr>';
-  });
+    h += '</tr></thead><tbody>';
+    OPS_TEAM.forEach(ops => {
+      h += `<tr><td><div class="ops-name">${ops.name}</div><div class="ops-role">${ops.role}</div></td>`;
+      days.forEach(day => {
+        const data = wd[ops.name]?.[day];
+        const assign = data?.assign || 'Off';
+        const isSolo = data?.solo || false;
+        const isOff = offDaysList.includes(day);
+        let cls = 'off', label = 'Off', sub = '';
+        if (!isOff) {
+          if (assign === 'NF+MK') { cls = 'nf-mk'; label = 'NF + MK'; }
+          else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
+          else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
+          else if (assign === 'Out') { cls = 'out'; label = 'Out'; }
+          if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
+        }
+        h += `<td class="day-cell" style="${isOff?'opacity:0.3;':''}"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div>';
+    return h;
+  }
 
-  html += '</tbody></table></div>';
+  const nfDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
+  const nfShorts = ['Mon','Tue','Wed','Thu','Fri','Sun'];
+  const mkDays = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+  const mkShorts = ['Mon','Tue','Wed','Thu','Fri'];
+
+  let html = `<div style="margin-bottom:12px;"><span class="week-type-badge week-type-${weekType.toLowerCase()}">Week ${weekType} Rotation</span></div>`;
+  html += makeTable(nfDays, nfShorts, 'NewsForce (NF)', wd._showOffDays||[]);
+  html += '<div style="margin:1.5rem 0;border-top:1px solid var(--border);"></div>';
+  html += makeTable(mkDays, mkShorts, 'MK Show', wd._mkShowOffDays||[]);
+
   grid.innerHTML = html;
 }
 
