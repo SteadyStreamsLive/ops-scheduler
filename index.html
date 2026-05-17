@@ -405,11 +405,18 @@ function buildProdTable() {
       const opts = getOptions(ops, day);
       const dt = wm ? getDateForDay(wm, di) : null;
       const ds = dt ? fmtDate(dt) : '';
-      const isShowOff = showOffDays.includes(day);
-
-      const optHTML = isShowOff
-        ? '<option value="Off">Off (Show Off)</option>'
-        : opts.map(o => `<option value="${o}" ${defaultVal===o?'selected':''}>${o}</option>`).join('');
+      const isNFOff = showOffDays.includes(day);
+      const isMKOff = mkShowOffDays.includes(day);
+      // Filter options based on which shows are off that day
+      let filteredOpts = opts.filter(o => {
+        if (o === 'NF+MK') return !isNFOff && !isMKOff;
+        if (o === 'NF') return !isNFOff;
+        if (o === 'MK') return !isMKOff;
+        return true; // Off, Out always available
+      });
+      if (filteredOpts.length === 0) filteredOpts = ['Off'];
+      const isShowOff = isNFOff && isMKOff; // only fully lock if both shows off
+      const optHTML = filteredOpts.map(o => `<option value="${o}" ${defaultVal===o?'selected':''}>${o}</option>`).join('');
       const soloBtn = (defaultVal !== 'Off')
         ? `<div class="solo-toggle"><button class="solo-btn ${isSolo?'active':''}" onclick="toggleSolo('${ops.name}','${day}',this)">Solo</button></div>`
         : '';
