@@ -362,7 +362,7 @@ function buildShowOffDayGrid() {
   const wm = document.getElementById('prod-week').value;
   const grid = document.getElementById('show-offday-grid');
   if (!grid) return;
-  const nfDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
+  const nfDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   grid.innerHTML = nfDays.map((day) => {
     const i = DAYS.indexOf(day);
     const dt = wm ? getDateForDay(wm, i) : null;
