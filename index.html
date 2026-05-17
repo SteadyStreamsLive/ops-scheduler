@@ -397,14 +397,9 @@ function buildProdTable() {
 function setAssign(opsName, day, val) {
   if (!weekSchedule[opsName]) weekSchedule[opsName] = {};
   if (!weekSchedule[opsName][day]) weekSchedule[opsName][day] = {};
-  // Save the assignment first
   weekSchedule[opsName][day].assign = val;
-  // Then rebuild - suggestRotation will read the saved Out days
-  if (val === 'Out' || val === 'Off') {
-    suggestRotation();
-  } else {
-    buildProdTable();
-  }
+  // Just rebuild the table — never auto-reset the whole schedule
+  buildProdTable();
 }
 
 function redistributeDay(day) {
