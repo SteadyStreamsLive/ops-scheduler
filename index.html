@@ -286,10 +286,10 @@ async function switchView(view, btn) {
     const prodWm = document.getElementById('prod-week').value;
     if (prodWm) {
       document.getElementById('sched-week').value = prodWm;
-      // Auto-save before loading schedule view
+      // Auto-save first, then load schedule from saved data
       await saveSchedule();
     }
-    loadScheduleView();
+    await loadScheduleView();
   }
 }
 
@@ -744,14 +744,18 @@ function downloadSchedICS() {
       if (assign === 'Off' || assign === 'Out') return;
       const solo = data?.solo ? ' (Solo)' : '';
       const stamp = new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
+      // MK: 10:30 AM - 6:30 PM (8hrs), NF: 11:00 AM - 7:00 PM (8hrs), NF+MK: 10:30 AM - 7:00 PM
+      const startTime = (assign === 'MK') ? 'T103000' : 'T110000';
+      const endTime = 'T183000'; // All end at 6:30 PM ET
+      const desc = assign === 'NF+MK' ? 'NewsForce (11AM-7PM) + MK Show (10:30AM-6:30PM)' : assign === 'NF' ? 'NewsForce 11:00 AM - 7:00 PM ET' : 'MK Show 10:30 AM - 6:30 PM ET';
       lines = lines.concat([
         'BEGIN:VEVENT',
         `UID:ops-${uid_base}-${evtCount++}@steadystreamslive.com`,
         `DTSTAMP:${stamp}`,
-        `DTSTART;TZID=America/New_York:${dateStr}T080000`,
-        `DTEND;TZID=America/New_York:${dateStr}T083000`,
+        `DTSTART;TZID=America/New_York:${dateStr}${startTime}`,
+        `DTEND;TZID=America/New_York:${dateStr}${endTime}`,
         `SUMMARY:[OPS] ${ops.name} — ${assign}${solo}`,
-        `DESCRIPTION:${assign === 'NF+MK' ? 'NewsForce + MK Show' : assign === 'NF' ? 'NewsForce' : 'MK Show'}`,
+        `DESCRIPTION:${desc}`,
         'END:VEVENT'
       ]);
     });
@@ -772,6 +776,17 @@ async function loadScheduleView() {
   if (!wm) return;
   const grid = document.getElementById('schedule-grid');
   grid.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:1rem 0;">Loading...</div>';
+  
+  // If producer is unlocked and week matches, render directly from memory
+  const prodWm = document.getElementById('prod-week').value;
+  if (producerUnlocked && wm === prodWm && Object.keys(weekSchedule).length > 0) {
+    window._lastWD = weekSchedule;
+    document.getElementById('sched-action-row').style.display='flex';
+    renderScheduleView(wm, weekSchedule);
+    return;
+  }
+
+  // Otherwise fetch from sheet
   try {
     const r = await api({ action: 'getOpsWeek', weekMonday: wm });
     const wd = r.success ? (r.weekData || {}) : {};
