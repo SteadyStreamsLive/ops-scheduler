@@ -210,7 +210,6 @@ const DAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
 // Ops team config
 const OPS_TEAM = [
-  { name: 'Matt',  role: 'MK TD',        mkFixed: true,  nf: false },
   { name: 'Nate',  role: 'NF + MK MM',   mkFixed: false, nf: true  },
   { name: 'Zach',  role: 'NF + MK MM',   mkFixed: false, nf: true  },
   { name: 'Steve', role: 'NF',           mkFixed: false, nf: true, mkReady: false },
@@ -235,10 +234,7 @@ function getWeekType(weekMonday) {
 }
 
 function getDefaultAssignment(opsName, day, weekType) {
-  // Matt: always MK Mon-Fri, off Sat-Sun
-  if (opsName === 'Matt') {
-    return (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK';
-  }
+
   // Rotation logic
   // Only ONE of Nate/Zach is NF+MK per day. The other is NF only.
   // Nate covers MK 4 days, Zach covers MK on Nate's off day from MK.
@@ -384,7 +380,7 @@ function buildProdTable() {
       const optHTML = isShowOff
         ? '<option value="Off">Off (Show Off)</option>'
         : opts.map(o => `<option value="${o}" ${defaultVal===o?'selected':''}>${o}</option>`).join('');
-      const soloBtn = (ops.name !== 'Matt' && defaultVal !== 'Off')
+      const soloBtn = (defaultVal !== 'Off')
         ? `<div class="solo-toggle"><button class="solo-btn ${isSolo?'active':''}" onclick="toggleSolo('${ops.name}','${day}',this)">Solo</button></div>`
         : '';
 
@@ -499,7 +495,7 @@ async function suggestRotation() {
   OPS_TEAM.forEach(ops => {
     manualOff[ops.name] = {};
     DAYS.forEach(day => {
-      if (weekSchedule[ops.name]?.[day]?.assign === 'Off' && ops.name !== 'Matt') {
+      if (weekSchedule[ops.name]?.[day]?.assign === 'Off') {
         manualOff[ops.name][day] = true;
       }
     });
@@ -509,8 +505,7 @@ async function suggestRotation() {
   weekSchedule = {};
   OPS_TEAM.forEach(ops => { weekSchedule[ops.name] = {}; DAYS.forEach(day => { weekSchedule[ops.name][day] = { assign: 'Off', solo: false }; }); });
 
-  // Matt: always MK Mon-Fri
-  DAYS.forEach(day => { weekSchedule['Matt'][day] = { assign: (day === 'Saturday' || day === 'Sunday') ? 'Off' : 'MK', solo: false }; });
+
 
   // Apply Out days and manual Off days — these are locked
   OPS_TEAM.forEach(ops => {
