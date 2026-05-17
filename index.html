@@ -154,6 +154,10 @@
       <div class="legend-item"><div class="legend-dot" style="background:var(--amber);"></div>Solo Day</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--off-color);"></div>Day Off</div>
     </div>
+    <div class="action-row" id="sched-action-row" style="display:none;margin-bottom:1rem;">
+      <button class="ghost-btn" onclick="downloadSchedTXT()">Download TXT</button>
+      <button class="ghost-btn" onclick="downloadSchedICS()">Download ICS</button>
+    </div>
     <div class="schedule-grid" id="schedule-grid">
       <div style="font-size:13px;color:var(--muted);padding:1rem 0;">Select a week and click Refresh to load the schedule.</div>
     </div>
@@ -273,14 +277,18 @@ async function api(payload) {
   return r.json();
 }
 
-function switchView(view, btn) {
+async function switchView(view, btn) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
   btn.classList.add('active');
   if (view === 'schedule') {
     const prodWm = document.getElementById('prod-week').value;
-    if (prodWm) document.getElementById('sched-week').value = prodWm;
+    if (prodWm) {
+      document.getElementById('sched-week').value = prodWm;
+      // Auto-save before loading schedule view
+      await saveSchedule();
+    }
     loadScheduleView();
   }
 }
@@ -695,6 +703,70 @@ async function pushToCalendar() {
 // ============================================================
 // SCHEDULE VIEW
 // ============================================================
+function downloadSchedTXT() {
+  const wm = document.getElementById('sched-week').value;
+  const grid = document.getElementById('schedule-grid');
+  if (!grid) return;
+  // Build text from current schedule data
+  let txt = `OPS SCHEDULE — Week of ${wm}\n${'='.repeat(40)}\n\n`;
+  DAYS.forEach(day => {
+    txt += `${day.toUpperCase()}\n`;
+    OPS_TEAM.forEach(ops => {
+      const data = window._lastWD?.[ops.name]?.[day];
+      const assign = data?.assign || 'Off';
+      const solo = data?.solo ? ' (Solo)' : '';
+      txt += `  ${ops.name}: ${assign}${solo}\n`;
+    });
+    txt += '\n';
+  });
+  const blob = new Blob([txt], {type:'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `OpsSchedule_${wm}.txt`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast('Downloaded!');
+}
+
+function downloadSchedICS() {
+  const wm = document.getElementById('sched-week').value;
+  if (!wm || !window._lastWD) { toast('Load schedule first.'); return; }
+  const CRLF = String.fromCharCode(13,10);
+  const uid_base = Date.now();
+  let lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//SteadyStreams Ops Scheduler//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:Ops Schedule','X-WR-TIMEZONE:America/New_York'];
+  let evtCount = 0;
+  DAYS.forEach((day, di) => {
+    const dt = getDateForDay(wm, di);
+    const dateStr = dt.toISOString().split('T')[0].replace(/-/g,'');
+    OPS_TEAM.forEach(ops => {
+      const data = window._lastWD[ops.name]?.[day];
+      const assign = data?.assign || 'Off';
+      if (assign === 'Off' || assign === 'Out') return;
+      const solo = data?.solo ? ' (Solo)' : '';
+      const stamp = new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
+      lines = lines.concat([
+        'BEGIN:VEVENT',
+        `UID:ops-${uid_base}-${evtCount++}@steadystreamslive.com`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;TZID=America/New_York:${dateStr}T080000`,
+        `DTEND;TZID=America/New_York:${dateStr}T083000`,
+        `SUMMARY:[OPS] ${ops.name} — ${assign}${solo}`,
+        `DESCRIPTION:${assign === 'NF+MK' ? 'NewsForce + MK Show' : assign === 'NF' ? 'NewsForce' : 'MK Show'}`,
+        'END:VEVENT'
+      ]);
+    });
+  });
+  lines.push('END:VCALENDAR');
+  const ics = lines.join(CRLF);
+  const blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `OpsSchedule_${wm}.ics`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast('ICS downloaded!');
+}
+
 async function loadScheduleView() {
   const wm = document.getElementById('sched-week').value;
   if (!wm) return;
@@ -703,6 +775,8 @@ async function loadScheduleView() {
   try {
     const r = await api({ action: 'getOpsWeek', weekMonday: wm });
     const wd = r.success ? (r.weekData || {}) : {};
+    window._lastWD = wd;
+    document.getElementById('sched-action-row').style.display='flex';
     renderScheduleView(wm, wd);
   } catch(e) {
     grid.innerHTML = '<div style="font-size:13px;color:var(--muted);">Connection error.</div>';
