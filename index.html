@@ -18,7 +18,6 @@
     }
     body{font-family:'Barlow',sans-serif;background:var(--black);color:var(--white);min-height:100vh;}
 
-    /* TOPBAR */
     .topbar{background:var(--dark);border-bottom:1px solid var(--border);padding:0 1.5rem;display:flex;align-items:center;height:58px;gap:12px;position:sticky;top:0;z-index:100;}
     .logo{display:flex;align-items:center;gap:10px;margin-right:auto;}
     .logo-mark{background:var(--accent);color:var(--black);font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:11px;letter-spacing:0.05em;padding:4px 7px;border-radius:4px;}
@@ -29,7 +28,6 @@
     .nav-btn.active{background:var(--accent);color:var(--black);border-color:var(--accent);font-weight:600;}
     .nav-btn:hover:not(.active){background:var(--dark3);color:var(--white);}
 
-    /* LAYOUT */
     .container{max-width:900px;margin:0 auto;padding:2rem 1.25rem;}
     .view{display:none;}.view.active{display:block;}
     .hero-strip{border-left:3px solid var(--accent);padding-left:14px;margin-bottom:1.5rem;}
@@ -45,12 +43,10 @@
     .primary-btn{padding:9px 18px;background:var(--accent);color:var(--black);border:none;border-radius:4px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;transition:opacity 0.15s;}
     .primary-btn:hover{opacity:0.88;}
 
-    /* LEGEND */
     .legend{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.5rem;}
     .legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
     .legend-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
 
-    /* SCHEDULE GRID */
     .schedule-grid{overflow-x:auto;}
     .grid-table{width:100%;border-collapse:collapse;min-width:640px;}
     .grid-table th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);background:var(--dark);}
@@ -60,7 +56,6 @@
     .ops-name{font-weight:600;font-size:13px;color:var(--off-white);white-space:nowrap;}
     .ops-role{font-size:10px;color:var(--muted);margin-top:1px;}
 
-    /* DAY CELLS */
     .day-cell{text-align:center;padding:4px;}
     .assign-badge{display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:5px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;min-width:64px;cursor:default;}
     .assign-badge.nf{background:rgba(10,132,255,0.12);border:1px solid rgba(10,132,255,0.3);color:var(--nf-color);}
@@ -71,7 +66,6 @@
     .assign-badge.out{background:rgba(58,58,58,0.5);border:1px dashed var(--red);color:var(--red);}
     .assign-sub{font-size:9px;font-weight:500;opacity:0.8;text-transform:none;letter-spacing:0;}
 
-    /* PRODUCER GRID */
     .prod-grid{overflow-x:auto;}
     .prod-table{width:100%;border-collapse:collapse;min-width:700px;}
     .prod-table th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);background:var(--dark);}
@@ -85,7 +79,6 @@
     .solo-btn{font-size:9px;padding:2px 6px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;font-family:'Barlow',sans-serif;transition:all 0.15s;}
     .solo-btn.active{background:rgba(255,159,10,0.15);border-color:var(--amber);color:var(--amber);}
 
-    /* PASSWORD */
     .pw-screen{position:fixed;inset:0;background:var(--black);z-index:200;display:flex;align-items:center;justify-content:center;}
     .pw-box{background:var(--dark);border:1px solid var(--border);border-radius:12px;padding:2.5rem 2rem;width:100%;max-width:340px;text-align:center;}
     .pw-title{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;}
@@ -108,7 +101,6 @@
 </head>
 <body>
 
-<!-- PASSWORD -->
 <div class="pw-screen" id="pw-screen" style="display:none;">
   <div class="pw-box">
     <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:1.5rem;">
@@ -136,7 +128,6 @@
 
 <div class="container">
 
-  <!-- SCHEDULE VIEW -->
   <div class="view active" id="view-schedule">
     <div class="hero-strip">
       <h1>Ops Schedule</h1>
@@ -163,7 +154,6 @@
     </div>
   </div>
 
-  <!-- PRODUCER VIEW -->
   <div class="view" id="view-producer">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap;">
       <div class="hero-strip" style="margin-bottom:0;">
@@ -214,14 +204,12 @@ const CALENDAR_ID = "c_818cba713b535f8b21d6e0d869b850f75ea17c21f72151b61f6977983
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const DAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-// Ops team config
 const OPS_TEAM = [
   { name: 'Nate',  role: 'NF + MK MM',   mkFixed: false, nf: true  },
   { name: 'Zach',  role: 'NF + MK MM',   mkFixed: false, nf: true  },
   { name: 'Steve', role: 'NF',           mkFixed: false, nf: true, mkReady: false },
 ];
 
-// Assignment options per person
 function getOptions(ops, day) {
   if (ops.mkFixed) {
     return (day === 'Saturday' || day === 'Sunday') ? ['Off', 'Out'] : ['MK', 'Out'];
@@ -232,7 +220,6 @@ function getOptions(ops, day) {
   return ['NF+MK', 'NF', 'MK', 'Off', 'Out'];
 }
 
-// Week A/B rotation defaults
 function getWeekType(weekMonday) {
   const d = new Date(weekMonday + 'T12:00:00');
   const weekNum = Math.floor(d.getTime() / (7 * 24 * 60 * 60 * 1000));
@@ -240,10 +227,6 @@ function getWeekType(weekMonday) {
 }
 
 function getDefaultAssignment(opsName, day, weekType) {
-
-  // Rotation logic
-  // Only ONE of Nate/Zach is NF+MK per day. The other is NF only.
-  // Nate covers MK 4 days, Zach covers MK on Nate's off day from MK.
   const rotations = {
     'Nate': {
       A: { Monday:'NF+MK', Tuesday:'NF+MK', Wednesday:'NF+MK', Thursday:'NF+MK', Friday:'NF',    Saturday:'Off', Sunday:'Off' },
@@ -262,8 +245,8 @@ function getDefaultAssignment(opsName, day, weekType) {
 }
 
 let weekSchedule = {};
-let showOffDays = []; // NF off days
-let mkShowOffDays = []; // MK off days
+let showOffDays = [];
+let mkShowOffDays = [];
 let producerUnlocked = false;
 
 function toast(msg, ms=2500) {
@@ -286,7 +269,6 @@ async function switchView(view, btn) {
     const prodWm = document.getElementById('prod-week').value;
     if (prodWm) {
       document.getElementById('sched-week').value = prodWm;
-      // Auto-save first, then load schedule from saved data
       await saveSchedule();
     }
     await loadScheduleView();
@@ -339,9 +321,6 @@ function fmtDate(d) {
   return d.toLocaleDateString('en-US', { month:'numeric', day:'numeric' });
 }
 
-// ============================================================
-// PRODUCER VIEW
-// ============================================================
 function buildMKOffDayGrid() {
   const wm = document.getElementById('prod-week').value;
   const grid = document.getElementById('mk-offday-grid');
@@ -415,21 +394,21 @@ function buildProdTable() {
       const ds = dt ? fmtDate(dt) : '';
       const isNFOff = showOffDays.includes(day);
       const isMKOff = mkShowOffDays.includes(day);
-      // Filter options based on which shows are off that day
       let filteredOpts = opts.filter(o => {
         if (o === 'NF+MK') return !isNFOff && !isMKOff;
         if (o === 'NF') return !isNFOff;
         if (o === 'MK') return !isMKOff;
-        return true; // Off, Out always available
+        return true;
       });
       if (filteredOpts.length === 0) filteredOpts = ['Off'];
-      const isShowOff = isNFOff && isMKOff; // only fully lock if both shows off
+      const isShowOff = isNFOff && isMKOff;
       const optHTML = filteredOpts.map(o => `<option value="${o}" ${defaultVal===o?'selected':''}>${o}</option>`).join('');
       const soloBtn = (defaultVal !== 'Off')
         ? `<div class="solo-toggle"><button class="solo-btn ${isSolo?'active':''}" onclick="toggleSolo('${ops.name}','${day}',this)">Solo</button></div>`
         : '';
 
-      html += `<td class="day-cell" style="${isShowOff?'opacity:0.4;':''}">\n        <select class="prod-select" onchange="setAssign('${ops.name}','${day}',this.value)" ${isShowOff?'disabled':''} >${optHTML}</select>
+      html += `<td class="day-cell" style="${isShowOff?'opacity:0.4;':''}">
+        <select class="prod-select" onchange="setAssign('${ops.name}','${day}',this.value)" ${isShowOff?'disabled':''} >${optHTML}</select>
         ${soloBtn}
       </td>`;
     });
@@ -443,32 +422,26 @@ function setAssign(opsName, day, val) {
   if (!weekSchedule[opsName]) weekSchedule[opsName] = {};
   if (!weekSchedule[opsName][day]) weekSchedule[opsName][day] = {};
   weekSchedule[opsName][day].assign = val;
-  // Just rebuild the table — never auto-reset the whole schedule
   buildProdTable();
 }
 
 function redistributeDay(day) {
-  // If Nate is Out, Zach takes NF+MK. If Zach is Out, Nate takes NF+MK.
   const nateAssign = weekSchedule['Nate']?.[day]?.assign;
   const zachAssign = weekSchedule['Zach']?.[day]?.assign;
 
-  if (day === 'Saturday' || day === 'Sunday') return; // no MK on weekends
+  if (day === 'Saturday' || day === 'Sunday') return;
 
   if (nateAssign === 'Out' && zachAssign !== 'Out' && zachAssign !== 'Off') {
-    // Nate is out — Zach covers MK
     if (!weekSchedule['Zach']) weekSchedule['Zach'] = {};
     if (!weekSchedule['Zach'][day]) weekSchedule['Zach'][day] = {};
     weekSchedule['Zach'][day].assign = 'NF+MK';
   } else if (zachAssign === 'Out' && nateAssign !== 'Out' && nateAssign !== 'Off') {
-    // Zach is out — Nate covers MK if not already
     if (!weekSchedule['Nate']) weekSchedule['Nate'] = {};
     if (!weekSchedule['Nate'][day]) weekSchedule['Nate'][day] = {};
     if (weekSchedule['Nate'][day].assign !== 'NF+MK') {
       weekSchedule['Nate'][day].assign = 'NF+MK';
     }
   }
-
-  // If Steve is Out, flag but no auto-change needed (Nate/Zach already on NF)
 }
 
 function toggleSolo(opsName, day, btn) {
@@ -484,7 +457,6 @@ async function suggestRotation() {
   if (!wm) { toast('Set a week first.'); return; }
   toast('Loading NF schedule...', 2000);
 
-  // Read ALL Out and Off assignments from current weekSchedule
   const outDays = {};
   OPS_TEAM.forEach(ops => {
     outDays[ops.name] = {};
@@ -494,8 +466,6 @@ async function suggestRotation() {
     });
   });
 
-
-  // Fetch NF anchor counts
   let anchorCounts = {};
   DAYS.forEach(d => anchorCounts[d] = 0);
   try {
@@ -514,7 +484,6 @@ async function suggestRotation() {
     DAYS.forEach(d => anchorCounts[d] = d === 'Saturday' ? 0 : 3);
   }
 
-  // Day types
   const dayType = {};
   DAYS.forEach(d => {
     if (d === 'Saturday') { dayType[d] = 'off'; return; }
@@ -522,7 +491,6 @@ async function suggestRotation() {
     dayType[d] = c === 0 ? 'off' : c <= 2 ? 'light' : 'heavy';
   });
 
-  // Show counts
   const display = document.getElementById('week-type-display');
   display.innerHTML = DAYS.filter(d => d !== 'Saturday').map(d => {
     const c = anchorCounts[d] || 0;
@@ -530,7 +498,6 @@ async function suggestRotation() {
     return `<span style="font-size:10px;color:${col};margin-right:10px;">${d.slice(0,3)}: ${c} anchors</span>`;
   }).join('');
 
-  // Preserve manual Off selections before rebuilding
   const manualOff = {};
   OPS_TEAM.forEach(ops => {
     manualOff[ops.name] = {};
@@ -541,13 +508,9 @@ async function suggestRotation() {
     });
   });
 
-  // Build schedule
   weekSchedule = {};
   OPS_TEAM.forEach(ops => { weekSchedule[ops.name] = {}; DAYS.forEach(day => { weekSchedule[ops.name][day] = { assign: 'Off', solo: false }; }); });
 
-
-
-  // Apply Out days and manual Off days — these are locked
   OPS_TEAM.forEach(ops => {
     DAYS.forEach(day => {
       if (outDays[ops.name]?.[day]) weekSchedule[ops.name][day] = { assign: 'Out', solo: false };
@@ -570,7 +533,6 @@ async function suggestRotation() {
     const avail = NF_OPS.filter(n => !outDays[n]?.[day] && !manualOff[n]?.[day] && workDays[n] < TARGET);
     const assigned = [];
 
-    // Assign MK op (Mon-Fri only, not Sunday)
     if (day !== 'Sunday') {
       let mkOp = null;
       if (avail.includes('Nate') && mkCount.Nate < 4) mkOp = 'Nate';
@@ -585,8 +547,6 @@ async function suggestRotation() {
         assigned.push(mkOp);
       }
     } else {
-      // Sunday - NF only, no MK
-      // Pick ops sorted by fewest days first
       const sundayAvail = avail.sort((a,b) => workDays[a] - workDays[b]);
       const needTwoSun = dayType[day] === 'heavy';
       sundayAvail.slice(0, needTwoSun ? 2 : 1).forEach(pick => {
@@ -596,7 +556,6 @@ async function suggestRotation() {
       });
     }
 
-    // Fill remaining slots - allow 3 ops if needed to hit 5-day target
     const remaining = avail.filter(n => !assigned.includes(n)).sort((a,b) => workDays[a] - workDays[b]);
     const minSlots = Math.max(0, (needTwo ? 2 : 1) - assigned.length);
     const daysLeft = NF_DAYS_LIST.length - dayIdx - 1;
@@ -610,7 +569,6 @@ async function suggestRotation() {
       }
     });
 
-    // Mark solo if only 1 NF op today
     if (assigned.length === 1 && day !== 'Sunday') {
       weekSchedule[assigned[0]][day].solo = true;
     }
@@ -644,7 +602,6 @@ async function loadProducerWeek() {
 async function saveSchedule() {
   const wm = document.getElementById('prod-week').value;
   if (!wm) { toast('Set a week first.'); return; }
-  // Read current values from table
   const tbody = document.getElementById('prod-tbody');
   OPS_TEAM.forEach((ops, oi) => {
     const row = tbody.rows[oi];
@@ -670,7 +627,6 @@ async function pushToCalendar() {
   if (!wm) { toast('Set a week first.'); return; }
   await saveSchedule();
 
-  // Build calendar events — one event per ops per day at 8:00 AM
   const events = [];
   OPS_TEAM.forEach(ops => {
     DAYS.forEach((day, di) => {
@@ -700,14 +656,10 @@ async function pushToCalendar() {
   } catch(e) { toast('Connection error.'); }
 }
 
-// ============================================================
-// SCHEDULE VIEW
-// ============================================================
 function downloadSchedTXT() {
   const wm = document.getElementById('sched-week').value;
   const grid = document.getElementById('schedule-grid');
   if (!grid) return;
-  // Build text from current schedule data
   let txt = `OPS SCHEDULE — Week of ${wm}\n${'='.repeat(40)}\n\n`;
   DAYS.forEach(day => {
     txt += `${day.toUpperCase()}\n`;
@@ -744,9 +696,8 @@ function downloadSchedICS() {
       if (assign === 'Off' || assign === 'Out') return;
       const solo = data?.solo ? ' (Solo)' : '';
       const stamp = new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
-      // MK: 10:30 AM - 6:30 PM (8hrs), NF: 11:00 AM - 7:00 PM (8hrs), NF+MK: 10:30 AM - 7:00 PM
-      const startTime = (assign === 'NF') ? 'T110000' : 'T103000'; // MK and NF+MK start at 10:30, NF only at 11:00
-      const endTime = 'T183000'; // All end at 6:30 PM ET
+      const startTime = (assign === 'NF') ? 'T110000' : 'T103000';
+      const endTime = 'T183000';
       const desc = assign === 'NF+MK' ? 'NewsForce (11AM-7PM) + MK Show (10:30AM-6:30PM)' : assign === 'NF' ? 'NewsForce 11:00 AM - 7:00 PM ET' : 'MK Show 10:30 AM - 6:30 PM ET';
       lines = lines.concat([
         'BEGIN:VEVENT',
@@ -776,8 +727,7 @@ async function loadScheduleView() {
   if (!wm) return;
   const grid = document.getElementById('schedule-grid');
   grid.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:1rem 0;">Loading...</div>';
-  
-  // If producer is unlocked and week matches, render directly from memory
+
   const prodWm = document.getElementById('prod-week').value;
   if (producerUnlocked && wm === prodWm && Object.keys(weekSchedule).length > 0) {
     window._lastWD = weekSchedule;
@@ -786,7 +736,6 @@ async function loadScheduleView() {
     return;
   }
 
-  // Otherwise fetch from sheet
   try {
     const r = await api({ action: 'getOpsWeek', weekMonday: wm });
     const wd = r.success ? (r.weekData || {}) : {};
@@ -822,7 +771,7 @@ function renderScheduleView(wm, wd) {
       else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
       else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
       else if (assign === 'Out') { cls = 'out'; label = 'Out'; }
-      if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo day</span>';
+      if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo morning</span>';
       html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
     });
     html += '</tr>';
@@ -832,7 +781,6 @@ function renderScheduleView(wm, wd) {
   grid.innerHTML = html;
 }
 
-// INIT
 const wm = nextMonday();
 document.getElementById('prod-week').value = wm;
 document.getElementById('sched-week').value = wm;
