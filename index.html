@@ -79,6 +79,20 @@
     .solo-btn{font-size:9px;padding:2px 6px;border-radius:2px;border:1px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;font-family:'Barlow',sans-serif;transition:all 0.15s;}
     .solo-btn.active{background:rgba(255,159,10,0.15);border-color:var(--amber);color:var(--amber);}
 
+    /* TIMES GRID */
+    .times-grid{overflow-x:auto;margin-bottom:1rem;}
+    .times-table{width:100%;border-collapse:collapse;min-width:700px;}
+    .times-table th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);background:var(--dark);}
+    .times-table th:first-child{text-align:left;}
+    .times-table td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:middle;text-align:center;}
+    .times-table tr:last-child td{border-bottom:none;}
+    .show-label{font-weight:700;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;text-align:left;padding-left:10px !important;}
+    .show-label.nf-show{color:var(--nf-color);}
+    .show-label.mk-show{color:#ff4060;}
+    .time-input{width:88px;padding:5px 6px;font-size:11px;font-family:'Barlow',sans-serif;background:var(--dark2);border:1px solid var(--border2);border-radius:3px;color:var(--white);outline:none;text-align:center;}
+    .time-input:focus{border-color:var(--accent);}
+    .time-end{display:block;font-size:9px;color:var(--muted);margin-top:3px;letter-spacing:0.03em;}
+
     .pw-screen{position:fixed;inset:0;background:var(--black);z-index:200;display:flex;align-items:center;justify-content:center;}
     .pw-box{background:var(--dark);border:1px solid var(--border);border-radius:12px;padding:2.5rem 2rem;width:100%;max-width:340px;text-align:center;}
     .pw-title{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;}
@@ -177,6 +191,19 @@
     <div class="section-label">MK Off Days</div>
     <div id="mk-offday-grid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem;"></div>
 
+    <div class="section-label">Start times</div>
+    <div class="times-grid">
+      <table class="times-table" id="times-table">
+        <thead>
+          <tr>
+            <th>Show</th>
+            <th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sun</th>
+          </tr>
+        </thead>
+        <tbody id="times-tbody"></tbody>
+      </table>
+    </div>
+
     <div class="section-label">Weekly assignments</div>
     <div class="prod-grid">
       <table class="prod-table" id="prod-table">
@@ -209,6 +236,86 @@ const OPS_TEAM = [
   { name: 'Zach',  role: 'NF + MK MM',   mkFixed: false, nf: true  },
   { name: 'Steve', role: 'NF',           mkFixed: false, nf: true, mkReady: false },
 ];
+
+// ============================================================
+// START-TIME GRID
+// ============================================================
+// Per-show, per-day start times. End time auto-calculated as start + 8 hours.
+// NF+MK ops automatically use the EARLIER of the two times for their day.
+// Saturday excluded (always off).
+const TIME_DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Sunday'];
+const DEFAULT_TIMES = {
+  NF: { Monday:'11:00', Tuesday:'11:00', Wednesday:'11:00', Thursday:'11:00', Friday:'11:00', Sunday:'11:00' },
+  MK: { Monday:'10:30', Tuesday:'10:30', Wednesday:'10:30', Thursday:'10:30', Friday:'10:30', Sunday:''      } // MK doesn't run Sun
+};
+let weekTimes = JSON.parse(JSON.stringify(DEFAULT_TIMES)); // deep copy
+
+// Convert "HH:MM" (24h, e.g. "10:30") to display "10:30 AM"
+function fmtTimeDisplay(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return '';
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m).padStart(2,'0')} ${period}`;
+}
+
+// Add hours to "HH:MM" -> "HH:MM" (handles wrap past 24, clamps at 23:59)
+function addHours(hhmm, hoursToAdd) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return '';
+  let totalMin = h * 60 + m + hoursToAdd * 60;
+  if (totalMin >= 24*60) totalMin = 24*60 - 1; // clamp
+  if (totalMin < 0) totalMin = 0;
+  const eh = Math.floor(totalMin / 60), em = totalMin % 60;
+  return `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
+}
+
+// Get start time for an op on a given day, based on their assignment + weekTimes.
+// NF+MK: earlier of NF and MK. NF: weekTimes.NF. MK: weekTimes.MK.
+function getStartTimeForAssign(assign, day) {
+  if (assign === 'NF+MK') {
+    const nf = weekTimes.NF?.[day] || '';
+    const mk = weekTimes.MK?.[day] || '';
+    if (nf && mk) return nf < mk ? nf : mk;
+    return nf || mk || '11:00';
+  }
+  if (assign === 'NF') return weekTimes.NF?.[day] || '11:00';
+  if (assign === 'MK') return weekTimes.MK?.[day] || '10:30';
+  return '';
+}
+
+function buildTimesTable() {
+  const tbody = document.getElementById('times-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  ['NF','MK'].forEach(show => {
+    const tr = document.createElement('tr');
+    let html = `<td class="show-label ${show.toLowerCase()}-show">${show}</td>`;
+    TIME_DAYS.forEach(day => {
+      // MK doesn't run Sunday — empty cell with a dash.
+      if (show === 'MK' && day === 'Sunday') {
+        html += `<td><span style="font-size:11px;color:var(--muted);">—</span></td>`;
+        return;
+      }
+      const start = weekTimes[show]?.[day] || '';
+      const end = start ? addHours(start, 8) : '';
+      html += `<td>
+        <input type="time" class="time-input" value="${start}" onchange="setShowTime('${show}','${day}',this.value)" />
+        <span class="time-end">${end ? '→ ' + fmtTimeDisplay(end) : ''}</span>
+      </td>`;
+    });
+    tr.innerHTML = html;
+    tbody.appendChild(tr);
+  });
+}
+
+function setShowTime(show, day, val) {
+  if (!weekTimes[show]) weekTimes[show] = {};
+  weekTimes[show][day] = val;
+  buildTimesTable(); // re-render so the end-time hint updates
+}
 
 function getOptions(ops, day) {
   if (ops.mkFixed) {
@@ -293,6 +400,7 @@ function checkPassword() {
     switchView('producer', window._pendingBtn);
     buildShowOffDayGrid();
     buildMKOffDayGrid();
+    buildTimesTable();
     buildProdTable();
   } else {
     document.getElementById('pw-input').classList.add('error');
@@ -587,12 +695,20 @@ async function loadProducerWeek() {
       weekSchedule = r.weekData;
       if (r.showOffDays) showOffDays = r.showOffDays;
       if (r.mkShowOffDays) mkShowOffDays = r.mkShowOffDays;
+      // Load saved times if present; otherwise fall back to defaults.
+      if (r.weekTimes && r.weekTimes.NF && r.weekTimes.MK) {
+        weekTimes = r.weekTimes;
+      } else {
+        weekTimes = JSON.parse(JSON.stringify(DEFAULT_TIMES));
+      }
       document.getElementById('sched-notes').value = r.notes || '';
     } else {
+      weekTimes = JSON.parse(JSON.stringify(DEFAULT_TIMES));
       suggestRotation();
     }
     buildShowOffDayGrid();
     buildMKOffDayGrid();
+    buildTimesTable();
     buildProdTable();
   } catch(e) {
     suggestRotation();
@@ -617,7 +733,7 @@ async function saveSchedule() {
   });
   const notes = document.getElementById('sched-notes').value;
   try {
-    const r = await api({ action: 'saveOpsWeek', weekMonday: wm, weekData: weekSchedule, notes, showOffDays, mkShowOffDays });
+    const r = await api({ action: 'saveOpsWeek', weekMonday: wm, weekData: weekSchedule, notes, showOffDays, mkShowOffDays, weekTimes });
     toast(r.success ? 'Saved!' : 'Error: ' + r.error);
   } catch(e) { toast('Connection error.'); }
 }
@@ -637,13 +753,16 @@ async function pushToCalendar() {
       const dateStr = dt.toISOString().split('T')[0];
       const title = `${ops.name} — ${assign}${isSolo ? ' (Solo)' : ''}`;
       const desc = assign === 'NF+MK' ? 'NewsForce + MK Show' : assign === 'NF' ? 'NewsForce' : 'MK Show';
+      // Use the per-day per-show start time; end = start + 8 hours.
+      const startHM = getStartTimeForAssign(assign, day) || '11:00';
+      const endHM = addHours(startHM, 8);
       events.push({
         opsName: ops.name,
         assign,
         isSolo,
         title,
-        start: dateStr + 'T08:00:00',
-        end: dateStr + 'T08:30:00',
+        start: dateStr + 'T' + startHM + ':00',
+        end: dateStr + 'T' + endHM + ':00',
         description: desc,
         color: assign === 'NF+MK' ? 'sage' : assign === 'MK' ? 'tomato' : assign === 'Out' ? 'flamingo' : 'banana'
       });
@@ -667,7 +786,13 @@ function downloadSchedTXT() {
       const data = window._lastWD?.[ops.name]?.[day];
       const assign = data?.assign || 'Off';
       const solo = data?.solo ? ' (Solo)' : '';
-      txt += `  ${ops.name}: ${assign}${solo}\n`;
+      let timeStr = '';
+      if (assign !== 'Off' && assign !== 'Out') {
+        const s = getStartTimeForAssign(assign, day);
+        const e = s ? addHours(s, 8) : '';
+        if (s && e) timeStr = `  [${fmtTimeDisplay(s)}–${fmtTimeDisplay(e)}]`;
+      }
+      txt += `  ${ops.name}: ${assign}${solo}${timeStr}\n`;
     });
     txt += '\n';
   });
@@ -696,9 +821,16 @@ function downloadSchedICS() {
       if (assign === 'Off' || assign === 'Out') return;
       const solo = data?.solo ? ' (Solo)' : '';
       const stamp = new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
-      const startTime = (assign === 'NF') ? 'T110000' : 'T103000';
-      const endTime = 'T183000';
-      const desc = assign === 'NF+MK' ? 'NewsForce (11AM-7PM) + MK Show (10:30AM-6:30PM)' : assign === 'NF' ? 'NewsForce 11:00 AM - 7:00 PM ET' : 'MK Show 10:30 AM - 6:30 PM ET';
+      // Per-day per-show times from weekTimes. End = start + 8 hours.
+      const startHM = getStartTimeForAssign(assign, day) || '11:00';
+      const endHM = addHours(startHM, 8);
+      const startTime = 'T' + startHM.replace(':','') + '00';
+      const endTime = 'T' + endHM.replace(':','') + '00';
+      const desc = assign === 'NF+MK'
+        ? `NewsForce + MK Show (${fmtTimeDisplay(startHM)}–${fmtTimeDisplay(endHM)} ET)`
+        : assign === 'NF'
+          ? `NewsForce ${fmtTimeDisplay(startHM)} - ${fmtTimeDisplay(endHM)} ET`
+          : `MK Show ${fmtTimeDisplay(startHM)} - ${fmtTimeDisplay(endHM)} ET`;
       lines = lines.concat([
         'BEGIN:VEVENT',
         `UID:ops-${uid_base}-${evtCount++}@steadystreamslive.com`,
@@ -740,6 +872,12 @@ async function loadScheduleView() {
     const r = await api({ action: 'getOpsWeek', weekMonday: wm });
     const wd = r.success ? (r.weekData || {}) : {};
     window._lastWD = wd;
+    // Also pull the times so ICS download uses correct per-day times.
+    if (r.weekTimes && r.weekTimes.NF && r.weekTimes.MK) {
+      weekTimes = r.weekTimes;
+    } else {
+      weekTimes = JSON.parse(JSON.stringify(DEFAULT_TIMES));
+    }
     document.getElementById('sched-action-row').style.display='flex';
     renderScheduleView(wm, wd);
   } catch(e) {
@@ -771,7 +909,16 @@ function renderScheduleView(wm, wd) {
       else if (assign === 'NF') { cls = isSolo ? 'solo' : 'nf'; label = isSolo ? 'Solo' : 'NF'; }
       else if (assign === 'MK') { cls = 'mk'; label = 'MK'; }
       else if (assign === 'Out') { cls = 'out'; label = 'Out'; }
-      if (isSolo && assign !== 'Off' && assign !== 'Out') sub = '<span class="assign-sub">solo morning</span>';
+      // Show the start time as a small sub-line for working days
+      if (assign !== 'Off' && assign !== 'Out') {
+        const s = getStartTimeForAssign(assign, day);
+        if (s) {
+          if (isSolo) sub = `<span class="assign-sub">solo morning · ${fmtTimeDisplay(s)}</span>`;
+          else sub = `<span class="assign-sub">${fmtTimeDisplay(s)}</span>`;
+        } else if (isSolo) {
+          sub = '<span class="assign-sub">solo morning</span>';
+        }
+      }
       html += `<td class="day-cell"><div class="assign-badge ${cls}">${label}${sub}</div></td>`;
     });
     html += '</tr>';
